@@ -1,4 +1,4 @@
-pub fn gaussian_blur(data: &mut Vec<u8>, width: usize, height: usize, blur_radius: f32)
+pub fn gaussian_blur(data: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: f32)
 {
     let mut backbuf = data.clone();
     let bxs = create_box_gauss(blur_radius, 3);
@@ -42,20 +42,20 @@ fn create_box_gauss(sigma: f32, n: usize)
 
 /// Needs 2x the same image
 #[inline]
-fn box_blur(backbuf: &mut Vec<u8>, frontbuf: &mut Vec<u8>, width: usize, height: usize, blur_radius: usize)
+fn box_blur(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
 {
     box_blur_vert(backbuf, frontbuf, width, height, blur_radius);
     box_blur_horz(backbuf, frontbuf, width, height, blur_radius);
 }
 
 #[inline]
-fn box_blur_horz(backbuf: &mut Vec<u8>, frontbuf: &mut Vec<u8>, width: usize, height: usize, blur_radius: usize)
+fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
 {
 
 }
 
 #[inline]
-fn box_blur_vert(backbuf: &mut Vec<u8>, frontbuf: &mut Vec<u8>, width: usize, height: usize, blur_radius: usize)
+fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
 {
     /*
 
@@ -77,39 +77,63 @@ fn box_blur_vert(backbuf: &mut Vec<u8>, frontbuf: &mut Vec<u8>, width: usize, he
 
     for i in 0..height {
 
-        // for each color component (r, g and b)
-        for col_i in 0..3 {
+        let ti: usize = i * width;
+        let li: usize = ti;
+        let ri: usize = ti + blur_radius;
 
-            let ti: usize = (i + col_i) * width;
-            let li: usize = ti;
-            let ri: usize = ti + blur_radius;
+        let fv: [u8;3] = backbuf[ti];
+        let lv: [u8;3] = backbuf[ti + width - 1];
 
-            let fv = backbuf[ti];
-            let lv = backbuf[ti + width - 1];
-            let mut val: isize = (blur_radius as isize + 1) * (fv as isize);
+        let mut val_r: isize = (blur_radius as isize + 1) * (fv[0] as isize);
+        let mut val_g: isize = (blur_radius as isize + 1) * (fv[1] as isize);
+        let mut val_b: isize = (blur_radius as isize + 1) * (fv[2] as isize);
 
-            // todo: replace this with for loops ?
 
-            for j in 0..blur_radius {
-                val += backbuf[ti + (j * 3)] as isize;
-            }
+        for j in 0..blur_radius {
+            let bb = backbuf[ti + j];
+            val_r += bb[0] as isize;
+            val_g += bb[1] as isize;
+            val_b += bb[2] as isize;
+        }
 
-            for j in 0..(blur_radius + 1) {
-                val += backbuf[ri + 1] as isize - fv as isize;
-                frontbuf[ti + 1] = (val as f32 * iarr).round() as u8;
-            }
+        for j in 0..(blur_radius + 1) {
+            let bb = backbuf[ri + 1];
+            val_r += bb[0] as isize - fv[0] as isize;
+            val_g += bb[1] as isize - fv[1] as isize;
+            val_b += bb[2] as isize - fv[2] as isize;
 
-            for j in (blur_radius + 1)..(width - blur_radius) {
-                val += backbuf[ri + 1] as isize - backbuf[li + 1] as isize;
-                frontbuf[ti + 1] = (val as f32 * iarr).round() as u8;
-            }
+            frontbuf[ti + 1] = [(val_r as f32 * iarr).round() as u8,
+                                (val_g as f32 * iarr).round() as u8,
+                                (val_b as f32 * iarr).round() as u8];
+        }
 
-            for j in (width - blur_radius)..width {
-                val += lv as isize - backbuf[li + 1] as isize;
-                frontbuf[ti + 1] = (val as f32 * iarr).round() as u8;
-            }
+        for j in (blur_radius + 1)..(width - blur_radius) {
+
+            let bb1 = backbuf[ri + 1];
+            let bb2 = backbuf[li + 1];
+
+            val_r += bb1[0] as isize - bb2[0] as isize;
+            val_g += bb1[1] as isize - bb2[1] as isize;
+            val_b += bb1[2] as isize - bb2[2] as isize;
+
+            frontbuf[ti + 1] = [(val_r as f32 * iarr).round() as u8,
+                                (val_g as f32 * iarr).round() as u8,
+                                (val_b as f32 * iarr).round() as u8];
+        }
+
+        for j in (width - blur_radius)..width {
+            let bb = backbuf[li + 1];
+
+            val_r += lv[0] as isize - bb[0] as isize;
+            val_g += lv[1] as isize - bb[1] as isize;
+            val_b += lv[2] as isize - bb[2] as isize;
+
+            frontbuf[ti + 1] = [(val_r as f32 * iarr).round() as u8,
+                                (val_g as f32 * iarr).round() as u8,
+                                (val_b as f32 * iarr).round() as u8];
         }
     }
+
 }
 
 /*

@@ -8,7 +8,7 @@ extern crate x11_dl;
 fn main() {
     let display = x11_get_display();
     let (mut data, width, height) = x11_make_screenshot(display, 0, 0, None, None);
-    blur::gaussian_blur(&mut data, width as usize, height as usize, 5.0);
+    blur::gaussian_blur(&mut data, width as usize, height as usize, 10.0);
     write_image("new.ppm", &data, width, height).unwrap();
 }
 
@@ -31,7 +31,7 @@ fn x11_get_display<'a>() -> &'a mut x11_dl::xlib::Display {
 
 #[cfg(target_os = "linux")]
 fn x11_make_screenshot(display: &mut x11_dl::xlib::Display, offset_x: i32, offset_y: i32, width: Option<i32>, height: Option<i32>)
--> (Vec<u8>, u32, u32)
+-> (Vec<[u8; 3]>, u32, u32)
 {
     let xlib = match x11_dl::xlib::Xlib::open() {
         Ok(x) => x,
@@ -56,11 +56,10 @@ fn x11_make_screenshot(display: &mut x11_dl::xlib::Display, offset_x: i32, offse
     };
 
     // todo: check if 3 is the correct number
-    let capacity = (width * height * 3) as usize;
-    // let mut screenshot: Vec<i8> = unsafe { Vec::from_raw_parts(image.data as *mut u8, capacity, capacity) };
+    let capacity = (width * height) as usize;
 
-    let mut screenshot: Vec<u8> = Vec::with_capacity(capacity);
-    screenshot.resize(capacity, 0);
+    let mut screenshot: Vec<[u8; 3]> = Vec::with_capacity(capacity);
+    screenshot.resize(capacity, [0, 0, 0]);
 
     let red_mask = image.red_mask;
     let green_mask = image.green_mask;
@@ -74,16 +73,19 @@ fn x11_make_screenshot(display: &mut x11_dl::xlib::Display, offset_x: i32, offse
             let green = ((pixel & green_mask) >> 8) as u8;
             let red   = ((pixel & red_mask)   >> 16) as u8;
 
-            screenshot[((x + width * y) * 3)      as usize]   = red;
+            screenshot[((width * y) + x) as usize] = [red, green, blue];
+/*
+            screenshot[((x + width * y) * 3)      as usize] = red;
             screenshot[((x + width * y) * 3 + 1)  as usize] = green;
             screenshot[((x + width * y) * 3 + 2)  as usize] = blue;
+*/
         }
     }
 
     (screenshot, width as u32, height as u32)
 }
 
-fn write_image<S>(filename: S, data: &[u8], width: u32, height: u32)
+fn write_image<S>(filename: S, data: &[[u8;3]], width: u32, height: u32)
 -> Result<(), ::std::io::Error> where S: Into<String>
 {
     use std::fs::File;
@@ -94,7 +96,10 @@ fn write_image<S>(filename: S, data: &[u8], width: u32, height: u32)
     let header = format!("P6\n{}\n{}\n{}\n", width, height, 255);
 
     file.write(header.as_bytes())?;
-    file.write(data)?;
+
+    for px in data {
+        file.write(px)?;
+    }
 
     Ok(())
 }
