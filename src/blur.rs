@@ -49,25 +49,48 @@ fn box_blur(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize,
 }
 
 #[inline]
-fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
+fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
 {
-
+    // todo
 }
 
 #[inline]
-fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
+fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
 {
     /*
 
-    function boxBlurH_4 (scl, tcl, w, h, r) {
-        var iarr = 1 / (r+r+1);
-        for(var i=0; i<h; i++) {
-            var ti = i*w, li = ti, ri = ti+r;
-            var fv = scl[ti], lv = scl[ti+w-1], val = (r+1)*fv;
-            for(var j=0; j<r; j++) val += scl[ti+j];
-            for(var j=0  ; j<=r ; j++) { val += scl[ri++] - fv       ;   tcl[ti++] = Math.round(val*iarr); }
-            for(var j=r+1; j<w-r; j++) { val += scl[ri++] - scl[li++];   tcl[ti++] = Math.round(val*iarr); }
-            for(var j=w-r; j<w  ; j++) { val += lv        - scl[li++];   tcl[ti++] = Math.round(val*iarr); }
+    // Original: http://blog.ivank.net/fastest-gaussian-blur.html
+
+    function boxBlurH_4(scl, tcl, w, h, r) {
+        var iarr = 1 / (r + r + 1);
+        for (var i = 0; i < h; i++) {
+
+            var ti = i * w,
+                li = ti,
+                ri = ti + r;
+
+            var fv = scl[ti],
+                lv = scl[ti + w - 1],
+                val = (r + 1) * fv;
+
+            for (var j = 0; j < r; j++) {
+                val += scl[ti + j];
+            }
+
+            for (var j = 0; j <= r; j++) {
+                val += scl[ri++] - fv;
+                tcl[ti++] = Math.round(val * iarr);
+            }
+
+            for (var j = r + 1; j < w - r; j++) {
+                val += scl[ri++] - scl[li++];
+                tcl[ti++] = Math.round(val * iarr);
+            }
+
+            for (var j = w - r; j < w; j++) {
+                val += lv - scl[li++];
+                tcl[ti++] = Math.round(val * iarr);
+            }
         }
     }
 
@@ -77,9 +100,9 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
 
     for i in 0..height {
 
-        let ti: usize = i * width;
-        let li: usize = ti;
-        let ri: usize = ti + blur_radius;
+        let mut ti: usize = i * width;
+        let mut li: usize = ti;
+        let mut ri: usize = ti + blur_radius;
 
         let fv: [u8;3] = backbuf[ti];
         let lv: [u8;3] = backbuf[ti + width - 1];
@@ -87,7 +110,6 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
         let mut val_r: isize = (blur_radius as isize + 1) * (fv[0] as isize);
         let mut val_g: isize = (blur_radius as isize + 1) * (fv[1] as isize);
         let mut val_b: isize = (blur_radius as isize + 1) * (fv[2] as isize);
-
 
         for j in 0..blur_radius {
             let bb = backbuf[ti + j];
@@ -97,7 +119,7 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
         }
 
         for j in 0..(blur_radius + 1) {
-            let bb = backbuf[ri + 1];
+            let bb = backbuf[ri + 1]; ri += 1;
             val_r += bb[0] as isize - fv[0] as isize;
             val_g += bb[1] as isize - fv[1] as isize;
             val_b += bb[2] as isize - fv[2] as isize;
@@ -105,12 +127,14 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             frontbuf[ti + 1] = [(val_r as f32 * iarr).round() as u8,
                                 (val_g as f32 * iarr).round() as u8,
                                 (val_b as f32 * iarr).round() as u8];
+            ti += 1;
         }
 
-        for j in (blur_radius + 1)..(width - blur_radius) {
+        for j in (blur_radius + 1)..(width - blur_radius) { // <- it works with (width - blur_radius - 1),
+                                                            // but there are a few pixel errors?
 
-            let bb1 = backbuf[ri + 1];
-            let bb2 = backbuf[li + 1];
+            let bb1 = backbuf[ri + 1]; ri += 1; // <-- one off error, but how?
+            let bb2 = backbuf[li + 1]; li += 1;
 
             val_r += bb1[0] as isize - bb2[0] as isize;
             val_g += bb1[1] as isize - bb2[1] as isize;
@@ -119,10 +143,11 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             frontbuf[ti + 1] = [(val_r as f32 * iarr).round() as u8,
                                 (val_g as f32 * iarr).round() as u8,
                                 (val_b as f32 * iarr).round() as u8];
+            ti += 1;
         }
 
         for j in (width - blur_radius)..width {
-            let bb = backbuf[li + 1];
+            let bb = backbuf[li + 1]; li += 1;
 
             val_r += lv[0] as isize - bb[0] as isize;
             val_g += lv[1] as isize - bb[1] as isize;
@@ -131,6 +156,7 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             frontbuf[ti + 1] = [(val_r as f32 * iarr).round() as u8,
                                 (val_g as f32 * iarr).round() as u8,
                                 (val_b as f32 * iarr).round() as u8];
+            ti += 1;
         }
     }
 
