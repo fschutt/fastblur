@@ -1,0 +1,7 @@
+[package]
+name = "imageblur"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+
+[dependencies]
+x11-dl = "2.15.0"
