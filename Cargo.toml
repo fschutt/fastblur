@@ -2,9 +2,13 @@
 name = "fastblur"
 version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+repository = "https://github.com/fschutt/fastblur"
+homepage = "https://github.com/fschutt/fastblur"
+license = "MIT"
+description = "Linear-time gaussian blur"
 
 [dependencies]
 
-#[dev-dependencies]
+[dev-dependencies]
 image = "0.15.0"
 x11-dl = "2.15.0"
