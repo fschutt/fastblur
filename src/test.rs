@@ -1,10 +1,9 @@
-extern crate image;
-extern crate test;
-
-#[bench]
-fn bench_blur_image(b: &mut test::Bencher) {
+#[test]
+fn test_blur_image_correctly() {
+    extern crate image;
 
     use super::gaussian_blur;
+    use super::utils;
 
     let image_bytes = include_bytes!("../assets/cballs.png");
     if let Ok(image::DynamicImage::ImageRgb8(png_data)) = image::load_from_memory_with_format(image_bytes, image::ImageFormat::PNG) {
@@ -21,7 +20,10 @@ fn bench_blur_image(b: &mut test::Bencher) {
             }
         }
 
-        b.iter(||  { gaussian_blur(&mut data_new, width as usize, height as usize, 10.0); } );
+        gaussian_blur(&mut data_new, width as usize, height as usize, 10.0);
+        utils::write_image("test.ppm", &data_new, width as usize, height as usize).unwrap();
+
+        assert!(true);
     } else {
         panic!("could not decode png");
     }

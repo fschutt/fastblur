@@ -49,6 +49,7 @@ fn box_blur(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize,
     box_blur_vert(backbuf, frontbuf, width, height, blur_radius); // both functions should mutate the data, not clone it!
 }
 
+#[inline]
 fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
 {
     let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
@@ -73,7 +74,7 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             val_b += bb[2] as isize;
         }
 
-        for j in 0..(blur_radius + 1) {
+        for _ in 0..(blur_radius + 1) {
             let bb = backbuf[ri]; ri += width;
             val_r += bb[0] as isize - fv[0] as isize;
             val_g += bb[1] as isize - fv[1] as isize;
@@ -85,7 +86,7 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             ti += width;
         }
 
-        for j in (blur_radius + 1)..(height - blur_radius) {
+        for _ in (blur_radius + 1)..(height - blur_radius) {
 
             let bb1 = backbuf[ri]; ri += width;
             let bb2 = backbuf[li]; li += width;
@@ -100,7 +101,7 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             ti += width;
         }
 
-        for j in (height - blur_radius)..height {
+        for _ in (height - blur_radius)..height {
             let bb = backbuf[li]; li += width;
 
             val_r += lv[0] as isize - bb[0] as isize;
@@ -115,6 +116,7 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
     }
 }
 
+#[inline]
 fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
 {
     let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
@@ -139,7 +141,7 @@ fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             val_b += bb[2] as isize;
         }
 
-        for j in 0..(blur_radius + 1) {
+        for _ in 0..(blur_radius + 1) {
             let bb = backbuf[ri]; ri += 1;
             val_r += bb[0] as isize - fv[0] as isize;
             val_g += bb[1] as isize - fv[1] as isize;
@@ -151,7 +153,7 @@ fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             ti += 1; // VERTICAL : ti += width, same with the other areas
         }
 
-        for j in (blur_radius + 1)..(width - blur_radius) {
+        for _ in (blur_radius + 1)..(width - blur_radius) {
 
             let bb1 = backbuf[ri]; ri += 1;
             let bb2 = backbuf[li]; li += 1;
@@ -166,7 +168,7 @@ fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             ti += 1;
         }
 
-        for j in (width - blur_radius)..width {
+        for _ in (width - blur_radius)..width {
             let bb = backbuf[li]; li += 1;
 
             val_r += lv[0] as isize - bb[0] as isize;

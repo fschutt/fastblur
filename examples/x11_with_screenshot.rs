@@ -1,15 +1,13 @@
-#![feature(test)]
-
-mod bench;
-pub mod blur;
-
 extern crate x11_dl;
+extern crate fastblur;
 
 fn main() {
+    use fastblur::utils;
+
     let display = x11_get_display();
     let (mut data, width, height) = x11_make_screenshot(display, 0, 0, None, None);
-    blur::gaussian_blur(&mut data, width as usize, height as usize, 10.0);
-    write_image("new.ppm", &data, width, height).unwrap();
+    fastblur::gaussian_blur(&mut data, width as usize, height as usize, 10.0);
+    utils::write_image("screenshot.ppm", &data, width as usize, height as usize).unwrap();
 }
 
 #[cfg(target_os = "linux")]
@@ -79,26 +77,3 @@ fn x11_make_screenshot(display: &mut x11_dl::xlib::Display, offset_x: i32, offse
 
     (screenshot, width as u32, height as u32)
 }
-
-fn write_image<S>(filename: S, data: &[[u8;3]], width: u32, height: u32)
--> Result<(), ::std::io::Error> where S: Into<String>
-{
-    use std::fs::File;
-    use std::io::BufWriter;
-    use std::io::Write;
-
-    let mut file = BufWriter::new(File::create(filename.into())?);
-    let header = format!("P6\n{}\n{}\n{}\n", width, height, 255);
-
-    file.write(header.as_bytes())?;
-
-    for px in data {
-        file.write(px)?;
-    }
-
-    Ok(())
-}
-
-
-
-
