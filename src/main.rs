@@ -74,11 +74,6 @@ fn x11_make_screenshot(display: &mut x11_dl::xlib::Display, offset_x: i32, offse
             let red   = ((pixel & red_mask)   >> 16) as u8;
 
             screenshot[((width * y) + x) as usize] = [red, green, blue];
-/*
-            screenshot[((x + width * y) * 3)      as usize] = red;
-            screenshot[((x + width * y) * 3 + 1)  as usize] = green;
-            screenshot[((x + width * y) * 3 + 2)  as usize] = blue;
-*/
         }
     }
 
