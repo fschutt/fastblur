@@ -6,7 +6,7 @@ fn main() {
 
     let display = x11_get_display();
     let (mut data, width, height) = x11_make_screenshot(display, 0, 0, None, None);
-    fastblur::gaussian_blur(&mut data, width as usize, height as usize, 10.0);
+    fastblur::gaussian_blur(&mut data, width as usize, height as usize, 257.0);
     utils::write_image("screenshot.ppm", &data, width as usize, height as usize).unwrap();
 }
 

@@ -21,7 +21,7 @@ fn bench_blur_image(b: &mut test::Bencher) {
             }
         }
 
-        b.iter(||  { gaussian_blur(&mut data_new, width as usize, height as usize, 10.0); } );
+        b.iter(||  { gaussian_blur(&mut data_new, width as usize, height as usize, 50.0); } );
     } else {
         panic!("could not decode png");
     }
