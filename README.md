@@ -25,4 +25,4 @@ __NOTE__: This currently crashes with large amounts of pixels. It is also not
 "the fastest" Gaussian blur. It currently takes 22ms - but it is independent of the
 blur size. A regular Gaussian blur depends on the size of the blur. At a 3px blur,
 the example from the `imageproc` library needs 4ms. At a 10px blur, it already needs
-28px. And so on. This library always needs 22ms, no matter of the size of the blur.
+28ms. And so on. This library always needs 22ms, no matter of the size of the blur.
