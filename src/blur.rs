@@ -44,9 +44,8 @@ fn create_box_gauss(sigma: f32, n: usize)
 #[inline]
 fn box_blur(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
 {
-    box_blur_horz(backbuf, frontbuf, width, height, blur_radius); // <- second line ovverrides first line, why?
-    *backbuf = frontbuf.clone();
-    box_blur_vert(backbuf, frontbuf, width, height, blur_radius); // both functions should mutate the data, not clone it!
+    box_blur_horz(backbuf, frontbuf, width, height, blur_radius);
+    box_blur_vert(frontbuf, backbuf, width, height, blur_radius);
 }
 
 #[inline]
