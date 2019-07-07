@@ -79,9 +79,9 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             val_g += bb[1] as isize - fv[1] as isize;
             val_b += bb[2] as isize - fv[2] as isize;
 
-            frontbuf[ti] = [(val_r as f32 * iarr).round() as u8,
-                            (val_g as f32 * iarr).round() as u8,
-                            (val_b as f32 * iarr).round() as u8];
+            frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                            round(val_g as f32 * iarr) as u8,
+                            round(val_b as f32 * iarr) as u8];
             ti += width;
         }
 
@@ -94,9 +94,9 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             val_g += bb1[1] as isize - bb2[1] as isize;
             val_b += bb1[2] as isize - bb2[2] as isize;
 
-            frontbuf[ti] = [(val_r as f32 * iarr).round() as u8,
-                            (val_g as f32 * iarr).round() as u8,
-                            (val_b as f32 * iarr).round() as u8];
+            frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                            round(val_g as f32 * iarr) as u8,
+                            round(val_b as f32 * iarr) as u8];
             ti += width;
         }
 
@@ -107,9 +107,9 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             val_g += lv[1] as isize - bb[1] as isize;
             val_b += lv[2] as isize - bb[2] as isize;
 
-            frontbuf[ti] = [(val_r as f32 * iarr).round() as u8,
-                            (val_g as f32 * iarr).round() as u8,
-                            (val_b as f32 * iarr).round() as u8];
+            frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                            round(val_g as f32 * iarr) as u8,
+                            round(val_b as f32 * iarr) as u8];
             ti += width;
         }
     }
@@ -146,9 +146,9 @@ fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             val_g += bb[1] as isize - fv[1] as isize;
             val_b += bb[2] as isize - fv[2] as isize;
 
-            frontbuf[ti] = [(val_r as f32 * iarr).round() as u8,
-                            (val_g as f32 * iarr).round() as u8,
-                            (val_b as f32 * iarr).round() as u8];
+            frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                            round(val_g as f32 * iarr) as u8,
+                            round(val_b as f32 * iarr) as u8];
             ti += 1; // VERTICAL : ti += width, same with the other areas
         }
 
@@ -161,9 +161,9 @@ fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             val_g += bb1[1] as isize - bb2[1] as isize;
             val_b += bb1[2] as isize - bb2[2] as isize;
 
-            frontbuf[ti] = [(val_r as f32 * iarr).round() as u8,
-                            (val_g as f32 * iarr).round() as u8,
-                            (val_b as f32 * iarr).round() as u8];
+            frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                            round(val_g as f32 * iarr) as u8,
+                            round(val_b as f32 * iarr) as u8];
             ti += 1;
         }
 
@@ -174,10 +174,21 @@ fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
             val_g += lv[1] as isize - bb[1] as isize;
             val_b += lv[2] as isize - bb[2] as isize;
 
-            frontbuf[ti] = [(val_r as f32 * iarr).round() as u8,
-                            (val_g as f32 * iarr).round() as u8,
-                            (val_b as f32 * iarr).round() as u8];
+            frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                            round(val_g as f32 * iarr) as u8,
+                            round(val_b as f32 * iarr) as u8];
             ti += 1;
         }
     }
+}
+
+#[inline]
+/// Fast rounding for x <= 2^23.
+/// This orders of magnitude faster than built-in rounding intrinsic.
+/// 
+/// Source: https://stackoverflow.com/a/42386149/585725
+fn round(mut x: f32) -> f32 {
+    x += 12582912.0;
+    x -= 12582912.0;
+    x
 }
