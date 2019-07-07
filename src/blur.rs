@@ -90,12 +90,16 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             }
         };
 
-        // TODO: not linear complexity, fix this
-        for j in 0..blur_radius {
-            let bb = get_bottom(ti + j * width);
+        for j in 0..min(blur_radius, height) {
+            let bb = backbuf[ti + j * width];
             val_r += bb[0] as isize;
             val_g += bb[1] as isize;
             val_b += bb[2] as isize;
+        }
+        if blur_radius > height {
+            val_r += (blur_radius - height) as isize * isize::from(lv[0]);
+            val_g += (blur_radius - height) as isize * isize::from(lv[1]);
+            val_b += (blur_radius - height) as isize * isize::from(lv[2]);
         }
 
         for _ in 0..min(height, blur_radius + 1) {
@@ -127,7 +131,7 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             }
 
             for _ in 0..min(height - blur_radius - 1, blur_radius) {
-                let bb = get_bottom(li); li += width;
+                let bb = get_top(li); li += width;
 
                 val_r += lv[0] as isize - bb[0] as isize;
                 val_g += lv[1] as isize - bb[1] as isize;
@@ -182,13 +186,18 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             }
         };
 
-        // TODO: not linear complexity, fix this
-        for j in 0..blur_radius {
-            let bb = get_right(ti + j); // VERTICAL: ti + j * width
+        for j in 0..min(blur_radius, width) {
+            let bb = backbuf[ti + j]; // VERTICAL: ti + j * width
             val_r += bb[0] as isize;
             val_g += bb[1] as isize;
             val_b += bb[2] as isize;
         }
+        if blur_radius > width {
+            val_r += (blur_radius - height) as isize * isize::from(lv[0]);
+            val_g += (blur_radius - height) as isize * isize::from(lv[1]);
+            val_b += (blur_radius - height) as isize * isize::from(lv[2]);
+        }
+
 
         // Process the left side where we need pixels from beyond the left edge
         for _ in 0..min(width, blur_radius + 1) {
