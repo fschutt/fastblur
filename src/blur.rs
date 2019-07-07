@@ -49,7 +49,7 @@ fn box_blur(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize,
 }
 
 #[inline]
-fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
+fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
 {
     let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
 
@@ -116,7 +116,7 @@ fn box_blur_vert(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
 }
 
 #[inline]
-fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: usize)
+fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
 {
     let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
 
@@ -184,7 +184,7 @@ fn box_blur_horz(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: u
 
 #[inline]
 /// Fast rounding for x <= 2^23.
-/// This orders of magnitude faster than built-in rounding intrinsic.
+/// This is orders of magnitude faster than built-in rounding intrinsic.
 /// 
 /// Source: https://stackoverflow.com/a/42386149/585725
 fn round(mut x: f32) -> f32 {
