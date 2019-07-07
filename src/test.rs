@@ -82,6 +82,8 @@ fn test_large_blur_doesnt_panic() {
         gaussian_blur(&mut data_new, width as usize, height as usize, 180.0); // smaller than height
         gaussian_blur(&mut data_new, width as usize, height as usize, 500.0); // bigger than height, smaller than width
         gaussian_blur(&mut data_new, width as usize, height as usize, 500000.0); // bigger than both
+        // causes panic in debug mode due to integer overflow, works in release mode
+        // gaussian_blur(&mut data_new, width as usize, height as usize, 500000000000000000.0); // ridiculously big
     } else {
         panic!("could not decode png");
     }
