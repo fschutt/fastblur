@@ -11,35 +11,41 @@ pub fn gaussian_blur(data: &mut Vec<[u8;3]>, width: usize, height: usize, blur_r
 }
 
 #[inline]
+/// If there is no valid size (e.g. radius is negative), returns `vec![1; len]`
+/// which would translate to blur radius of 0
 fn create_box_gauss(sigma: f32, n: usize)
 -> Vec<i32>
 {
-    let n_float = n as f32;
+    if sigma > 0.0 {
+        let n_float = n as f32;
 
-    // Ideal averaging filter width
-    let w_ideal = (12.0 * sigma * sigma / n_float).sqrt() + 1.0;
-    let mut wl: i32 = w_ideal.floor() as i32;
+        // Ideal averaging filter width
+        let w_ideal = (12.0 * sigma * sigma / n_float).sqrt() + 1.0;
+        let mut wl: i32 = w_ideal.floor() as i32;
 
-    if wl % 2 == 0 { wl -= 1; };
+        if wl % 2 == 0 { wl -= 1; };
 
-    let wu = wl + 2;
+        let wu = wl + 2;
 
-    let wl_float = wl as f32;
-    let m_ideal = (12.0 * sigma * sigma - n_float * wl_float * wl_float - 4.0 * n_float * wl_float - 3.0 * n_float) /
-                  (-4.0 * wl_float - 4.0);
-    let m: usize = m_ideal.round() as usize;
+        let wl_float = wl as f32;
+        let m_ideal = (12.0 * sigma * sigma - n_float * wl_float * wl_float - 4.0 * n_float * wl_float - 3.0 * n_float) /
+                    (-4.0 * wl_float - 4.0);
+        let m: usize = m_ideal.round() as usize;
 
-    let mut sizes = Vec::<i32>::new();
+        let mut sizes = Vec::<i32>::new();
 
-    for i in 0..n {
-        if i < m {
-            sizes.push(wl);
-        } else {
-            sizes.push(wu);
+        for i in 0..n {
+            if i < m {
+                sizes.push(wl);
+            } else {
+                sizes.push(wu);
+            }
         }
-    }
 
-    sizes
+        sizes
+    } else {
+        vec![1; n]
+    }
 }
 
 /// Needs 2x the same image
@@ -53,6 +59,11 @@ fn box_blur(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize,
 #[inline]
 fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
 {
+    if blur_radius == 0 {
+        frontbuf.copy_from_slice(backbuf);
+        return;
+    }
+
     let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
 
     for i in 0..width {
@@ -149,6 +160,11 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
 #[inline]
 fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
 {
+    if blur_radius == 0 {
+        frontbuf.copy_from_slice(backbuf);
+        return;
+    }
+
     let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
 
     for i in 0..height {
