@@ -58,7 +58,7 @@ fn test_blur_image_correctly() {
 }
 
 #[test]
-fn test_large_blur_doesnt_panic() {
+fn weird_sizes_dont_panic() {
     extern crate image;
 
     use super::gaussian_blur;
@@ -79,6 +79,8 @@ fn test_large_blur_doesnt_panic() {
                 data_new[((width * y) + x) as usize] = [data[offset * 3], data[(offset * 3) + 1], data[(offset * 3) + 2]];
             }
         }
+        gaussian_blur(&mut data_new, width as usize, height as usize, -5.0);
+        gaussian_blur(&mut data_new, width as usize, height as usize, 0.0);
         gaussian_blur(&mut data_new, width as usize, height as usize, 180.0); // smaller than height
         gaussian_blur(&mut data_new, width as usize, height as usize, 500.0); // bigger than height, smaller than width
         gaussian_blur(&mut data_new, width as usize, height as usize, 500000.0); // bigger than both
