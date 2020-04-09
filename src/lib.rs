@@ -21,8 +21,6 @@
 //! gaussian_blur(&mut data, width, height, 10.0);
 //! ```
 
-#![feature(test)]
-
 mod blur;
 
 #[cfg(test)]
@@ -34,4 +32,5 @@ pub mod utils;
 
 pub use blur::gaussian_blur as gaussian_blur;
 pub use blur::gaussian_blur_asymmetric as gaussian_blur_asymmetric;
+pub use blur::gaussian_blur_asymmetric_single_channel as gaussian_blur_asymmetric_single_channel;
 
