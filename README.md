@@ -26,3 +26,12 @@ it is independent of the blur size. A regular Gaussian blur depends on the size
 of the blur. At a 3px blur, the example from the `imageproc` library needs 4ms.
 At a 10px blur, it already needs 28ms. And so on. This library always needs
 8ms, no matter of the size of the blur.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
