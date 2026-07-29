@@ -1,3 +1,5 @@
+#![cfg_attr(all(test, feature = "nightly"), feature(test))]
+
 //! # fastblur
 //!
 //! Fast (linear time) implementation of the Gaussian Blur algorithm in Rust.
@@ -25,7 +27,9 @@ mod blur;
 
 #[cfg(test)]
 mod test;
-#[cfg(test)]
+// `#[bench]` is still unstable, so the benchmarks only exist on nightly:
+// `cargo +nightly bench --features nightly`
+#[cfg(all(test, feature = "nightly"))]
 mod bench;
 
 pub mod utils;
