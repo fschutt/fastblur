@@ -27,14 +27,21 @@ pub fn gaussian_blur_asymmetric(data: &mut Vec<[u8;3]>, width: usize, height: us
 #[inline]
 /// If there is no valid size (e.g. radius is negative), returns `vec![1; len]`
 /// which would translate to blur radius of 0
-fn create_box_gauss(sigma: f32, n: usize)
+pub(crate) fn create_box_gauss(sigma: f32, n: usize)
 -> Vec<i32>
 {
     if sigma > 0.0 {
         let n_float = n as f32;
 
-        // Ideal averaging filter width
-        let w_ideal = (12.0 * sigma * sigma / n_float).sqrt() + 1.0;
+        // Ideal averaging filter width.
+        //
+        // The `+ 1` belongs *inside* the square root - see `boxesForGauss` in
+        // http://blog.ivank.net/fastest-gaussian-blur.html. Adding it outside
+        // pushes `w_ideal` up by just under one, which is enough to make
+        // `floor()` land on the next box width for practically every sigma, so
+        // all three passes ended up using the same (too wide) box instead of
+        // the intended two narrow ones plus one wide one.
+        let w_ideal = (12.0 * sigma * sigma / n_float + 1.0).sqrt();
         let mut wl: i32 = w_ideal.floor() as i32;
 
         if wl % 2 == 0 { wl -= 1; };
