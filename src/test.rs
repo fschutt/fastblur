@@ -62,7 +62,6 @@ fn weird_sizes_dont_panic() {
     extern crate image;
 
     use super::gaussian_blur;
-    use super::utils;
 
     let image_bytes = include_bytes!("../assets/cballs.png");
 
@@ -262,5 +261,39 @@ fn blur_output_is_stable() {
         gaussian_blur_asymmetric_single_channel(&mut gray, w, h, sh, sv);
         assert_eq!(checksum(gray.iter()), want_gray,
                    "gray {}x{} h={} v={}", w, h, sh, sv);
+    }
+}
+
+#[test]
+fn channel_generic_core_agrees_with_the_fixed_width_entry_points() {
+    use super::{gaussian_blur, gaussian_blur_generic, gaussian_blur_asymmetric_single_channel};
+
+    let (width, height) = (29usize, 19usize);
+    let rgb_src = lcg_image(width, height);
+    let alpha_src = lcg_gray(width, height);
+
+    let mut rgb = rgb_src.clone();
+    gaussian_blur(&mut rgb, width, height, 3.0);
+
+    let mut alpha = alpha_src.clone();
+    gaussian_blur_asymmetric_single_channel(&mut alpha, width, height, 3.0, 3.0);
+
+    // RGBA has to blur the colour channels exactly like the RGB entry point,
+    // and its alpha channel exactly like the single channel one.
+    let mut rgba: Vec<[u8; 4]> = rgb_src.iter().zip(alpha_src.iter())
+        .map(|(p, &a)| [p[0], p[1], p[2], a])
+        .collect();
+    gaussian_blur_generic(&mut rgba, width, height, 3.0);
+
+    for (i, px) in rgba.iter().enumerate() {
+        assert_eq!([px[0], px[1], px[2]], rgb[i], "colour differs at {}", i);
+        assert_eq!(px[3], alpha[i], "alpha differs at {}", i);
+    }
+
+    // ... and one channel through the generic path matches the flat one.
+    let mut gray: Vec<[u8; 1]> = alpha_src.iter().map(|&g| [g]).collect();
+    gaussian_blur_generic(&mut gray, width, height, 3.0);
+    for (i, px) in gray.iter().enumerate() {
+        assert_eq!(px[0], alpha[i], "gray differs at {}", i);
     }
 }

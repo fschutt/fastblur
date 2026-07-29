@@ -7,20 +7,26 @@
 //!
 //! ## Usage
 //!
-//! The image is assumed to be an RGB image with three channels.
-//! This should change in the future, so you can blur as many channels as you want. Still very WIP.
-//!
 //! ```rust,ignore
-//! #[dependencies]
-//! fastblur = { git = "https://github.com/fschutt/fastblur" }
+//! [dependencies]
+//! fastblur = "0.2"
 //! ```
 //!
 //! ```rust,ignore
 //! use fastblur::gaussian_blur;
 //!
-//! // data is a Vec<[u8;3]> - 3 items for R, G and B.
-//! // This format will probably change.
+//! // data is a Vec<[u8; 3]> - 3 items for R, G and B.
 //! gaussian_blur(&mut data, width, height, 10.0);
+//! ```
+//!
+//! Any other channel count goes through `gaussian_blur_generic`, which is
+//! generic over the number of channels per pixel:
+//!
+//! ```rust,ignore
+//! use fastblur::gaussian_blur_generic;
+//!
+//! // data is a Vec<[u8; 4]> of *premultiplied* RGBA
+//! gaussian_blur_generic(&mut data, width, height, 10.0);
 //! ```
 
 mod blur;
@@ -34,7 +40,11 @@ mod bench;
 
 pub mod utils;
 
-pub use blur::gaussian_blur as gaussian_blur;
-pub use blur::gaussian_blur_asymmetric as gaussian_blur_asymmetric;
-pub use blur::gaussian_blur_asymmetric_single_channel as gaussian_blur_asymmetric_single_channel;
+pub use blur::{
+    gaussian_blur,
+    gaussian_blur_asymmetric,
+    gaussian_blur_generic,
+    gaussian_blur_asymmetric_generic,
+    gaussian_blur_asymmetric_single_channel,
+};
 

@@ -19,24 +19,62 @@ fn box_radius(box_size: i32, axis_len: usize) -> usize {
     min(((box_size - 1) / 2) as usize, axis_len)
 }
 
-pub fn gaussian_blur(data: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: f32)
+/// Blurs an RGB image in place.
+pub fn gaussian_blur(data: &mut [[u8; 3]], width: usize, height: usize, blur_radius: f32)
 {
     gaussian_blur_asymmetric(data, width, height, blur_radius, blur_radius)
 }
 
 /// Same as gaussian_blur, but allows using different blur radii for vertical and horizontal passes
-pub fn gaussian_blur_asymmetric(data: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32) {
+pub fn gaussian_blur_asymmetric(data: &mut [[u8; 3]], width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32)
+{
+    gaussian_blur_asymmetric_generic(data, width, height, blur_radius_horizontal, blur_radius_vertical)
+}
+
+/// Blurs an image with `CH` channels per pixel in place.
+///
+/// `CH` is a const parameter, so this covers grayscale (`[u8; 1]`), gray+alpha
+/// (`[u8; 2]`), RGB (`[u8; 3]`), RGBA and BGRA (`[u8; 4]`) and anything wider,
+/// with the per-channel loops unrolled at compile time.
+///
+/// Every channel is blurred independently, which is what you want for
+/// **premultiplied** alpha. Blurring straight (unpremultiplied) RGBA bleeds
+/// the colour of fully transparent pixels into their visible neighbours, so
+/// premultiply first and unpremultiply afterwards.
+pub fn gaussian_blur_generic<const CH: usize>(data: &mut [[u8; CH]], width: usize, height: usize, blur_radius: f32)
+{
+    gaussian_blur_asymmetric_generic(data, width, height, blur_radius, blur_radius)
+}
+
+/// Same as gaussian_blur_generic, but allows using different blur radii for vertical and horizontal passes
+pub fn gaussian_blur_asymmetric_generic<const CH: usize>(data: &mut [[u8; CH]], width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32)
+{
     if width == 0 || height == 0 { return; }
 
     let boxes_horz = create_box_gauss::<3>(blur_radius_horizontal);
     let boxes_vert = create_box_gauss::<3>(blur_radius_vertical);
-    let mut scratch = data.clone();
+    let mut scratch = data.to_vec();
 
     for (box_size_horz, box_size_vert) in boxes_horz.iter().zip(boxes_vert.iter()) {
         let radius_horz = box_radius(*box_size_horz, width);
         let radius_vert = box_radius(*box_size_vert, height);
         box_blur(&mut scratch, data, width, height, radius_horz, radius_vert);
     }
+}
+
+/// Same as gaussian_blur_asymmetric, but for a single channel image such as a
+/// mask or a standalone alpha plane.
+pub fn gaussian_blur_asymmetric_single_channel(data: &mut [u8], width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32)
+{
+    // SAFETY: `[u8; 1]` is guaranteed to have the same size and alignment as
+    // `u8` - an array is N consecutive elements with the alignment of the
+    // element type - so this is a view of the same bytes with the same length,
+    // not a reinterpretation of them.
+    let pixels: &mut [[u8; 1]] = unsafe {
+        ::std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut [u8; 1], data.len())
+    };
+
+    gaussian_blur_asymmetric_generic(pixels, width, height, blur_radius_horizontal, blur_radius_vertical)
 }
 
 #[inline]
@@ -84,32 +122,28 @@ pub(crate) fn create_box_gauss<const N: usize>(sigma: f32) -> [i32; N]
     sizes
 }
 
-/// Same as gaussian_blur, but allows using different blur radii for vertical and horizontal passes
-pub fn gaussian_blur_asymmetric_single_channel(data: &mut Vec<u8>, width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32) {
-    if width == 0 || height == 0 { return; }
-
-    let boxes_horz = create_box_gauss::<3>(blur_radius_horizontal);
-    let boxes_vert = create_box_gauss::<3>(blur_radius_vertical);
-    let mut scratch = data.clone();
-
-    for (box_size_horz, box_size_vert) in boxes_horz.iter().zip(boxes_vert.iter()) {
-        let radius_horz = box_radius(*box_size_horz, width);
-        let radius_vert = box_radius(*box_size_vert, height);
-        box_blur_single_channel(&mut scratch, data, width, height, radius_horz, radius_vert);
-    }
-}
-
 /// Runs one horizontal and one vertical box pass over `buf`, using `scratch`
 /// as the intermediate. The finished image ends up in `buf`.
 #[inline]
-fn box_blur(scratch: &mut Vec<[u8;3]>, buf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
+fn box_blur<const CH: usize>(scratch: &mut [[u8; CH]], buf: &mut [[u8; CH]], width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
 {
     box_blur_horz(buf, scratch, width, height, blur_radius_horz);
     box_blur_vert(scratch, buf, width, height, blur_radius_vert);
 }
 
+/// Divides the running window sum by the window size and packs it back into a pixel.
 #[inline]
-fn box_blur_vert(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
+fn average<const CH: usize>(val: &[isize; CH], iarr: f32) -> [u8; CH]
+{
+    let mut out = [0u8; CH];
+    for c in 0..CH {
+        out[c] = round(val[c] as f32 * iarr) as u8;
+    }
+    out
+}
+
+#[inline]
+fn box_blur_vert<const CH: usize>(src: &[[u8; CH]], dst: &mut [[u8; CH]], width: usize, height: usize, blur_radius: usize)
 {
     if blur_radius == 0 {
         dst.copy_from_slice(src);
@@ -126,12 +160,13 @@ fn box_blur_vert(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize
         let mut li: usize = ti;
         let mut ri: usize = ti + blur_radius * width;
 
-        let fv: [u8;3] = src[col_start];
-        let lv: [u8;3] = src[col_end];
+        let fv: [u8; CH] = src[col_start];
+        let lv: [u8; CH] = src[col_end];
 
-        let mut val_r: isize = (blur_radius as isize + 1) * isize::from(fv[0]);
-        let mut val_g: isize = (blur_radius as isize + 1) * isize::from(fv[1]);
-        let mut val_b: isize = (blur_radius as isize + 1) * isize::from(fv[2]);
+        let mut val = [0isize; CH];
+        for c in 0..CH {
+            val[c] = (blur_radius as isize + 1) * isize::from(fv[c]);
+        }
 
         // Get the pixel at the specified index, or the first pixel of the column
         // if the index is beyond the top edge of the image
@@ -155,25 +190,19 @@ fn box_blur_vert(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize
 
         for j in 0..min(blur_radius, height) {
             let bb = src[ti + j * width];
-            val_r += isize::from(bb[0]);
-            val_g += isize::from(bb[1]);
-            val_b += isize::from(bb[2]);
+            for c in 0..CH { val[c] += isize::from(bb[c]); }
         }
         if blur_radius > height {
-            val_r += (blur_radius - height) as isize * isize::from(lv[0]);
-            val_g += (blur_radius - height) as isize * isize::from(lv[1]);
-            val_b += (blur_radius - height) as isize * isize::from(lv[2]);
+            for c in 0..CH {
+                val[c] += (blur_radius - height) as isize * isize::from(lv[c]);
+            }
         }
 
         for _ in 0..min(height, blur_radius + 1) {
             let bb = get_bottom(ri); ri += width;
-            val_r += isize::from(bb[0]) - isize::from(fv[0]);
-            val_g += isize::from(bb[1]) - isize::from(fv[1]);
-            val_b += isize::from(bb[2]) - isize::from(fv[2]);
+            for c in 0..CH { val[c] += isize::from(bb[c]) - isize::from(fv[c]); }
 
-            dst[ti] = [round(val_r as f32 * iarr) as u8,
-                            round(val_g as f32 * iarr) as u8,
-                            round(val_b as f32 * iarr) as u8];
+            dst[ti] = average(&val, iarr);
             ti += width;
         }
 
@@ -183,26 +212,18 @@ fn box_blur_vert(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize
                 let bb1 = src[ri]; ri += width;
                 let bb2 = src[li]; li += width;
 
-                val_r += isize::from(bb1[0]) - isize::from(bb2[0]);
-                val_g += isize::from(bb1[1]) - isize::from(bb2[1]);
-                val_b += isize::from(bb1[2]) - isize::from(bb2[2]);
+                for c in 0..CH { val[c] += isize::from(bb1[c]) - isize::from(bb2[c]); }
 
-                dst[ti] = [round(val_r as f32 * iarr) as u8,
-                                round(val_g as f32 * iarr) as u8,
-                                round(val_b as f32 * iarr) as u8];
+                dst[ti] = average(&val, iarr);
                 ti += width;
             }
 
             for _ in 0..min(height - blur_radius - 1, blur_radius) {
                 let bb = get_top(li); li += width;
 
-                val_r += isize::from(lv[0]) - isize::from(bb[0]);
-                val_g += isize::from(lv[1]) - isize::from(bb[1]);
-                val_b += isize::from(lv[2]) - isize::from(bb[2]);
+                for c in 0..CH { val[c] += isize::from(lv[c]) - isize::from(bb[c]); }
 
-                dst[ti] = [round(val_r as f32 * iarr) as u8,
-                                round(val_g as f32 * iarr) as u8,
-                                round(val_b as f32 * iarr) as u8];
+                dst[ti] = average(&val, iarr);
                 ti += width;
             }
         }
@@ -210,7 +231,7 @@ fn box_blur_vert(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize
 }
 
 #[inline]
-fn box_blur_horz(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
+fn box_blur_horz<const CH: usize>(src: &[[u8; CH]], dst: &mut [[u8; CH]], width: usize, height: usize, blur_radius: usize)
 {
     if blur_radius == 0 {
         dst.copy_from_slice(src);
@@ -227,12 +248,13 @@ fn box_blur_horz(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize
         let mut li: usize = ti;
         let mut ri: usize = ti + blur_radius;
 
-        let fv: [u8;3] = src[row_start];
-        let lv: [u8;3] = src[row_end]; // VERTICAL: $src[ti + $width - 1];
+        let fv: [u8; CH] = src[row_start];
+        let lv: [u8; CH] = src[row_end]; // VERTICAL: $src[ti + $width - 1];
 
-        let mut val_r: isize = (blur_radius as isize + 1) * isize::from(fv[0]);
-        let mut val_g: isize = (blur_radius as isize + 1) * isize::from(fv[1]);
-        let mut val_b: isize = (blur_radius as isize + 1) * isize::from(fv[2]);
+        let mut val = [0isize; CH];
+        for c in 0..CH {
+            val[c] = (blur_radius as isize + 1) * isize::from(fv[c]);
+        }
 
         // Get the pixel at the specified index, or the first pixel of the row
         // if the index is beyond the left edge of the image
@@ -256,30 +278,24 @@ fn box_blur_horz(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize
 
         for j in 0..min(blur_radius, width) {
             let bb = src[ti + j]; // VERTICAL: ti + j * width
-            val_r += isize::from(bb[0]);
-            val_g += isize::from(bb[1]);
-            val_b += isize::from(bb[2]);
+            for c in 0..CH { val[c] += isize::from(bb[c]); }
         }
         // The row is `width` long, so this has to subtract `width`; subtracting
         // `height` (a copy-paste slip from the vertical pass) underflows as
         // soon as the image is taller than the blur box is wide.
         if blur_radius > width {
-            val_r += (blur_radius - width) as isize * isize::from(lv[0]);
-            val_g += (blur_radius - width) as isize * isize::from(lv[1]);
-            val_b += (blur_radius - width) as isize * isize::from(lv[2]);
+            for c in 0..CH {
+                val[c] += (blur_radius - width) as isize * isize::from(lv[c]);
+            }
         }
 
 
         // Process the left side where we need pixels from beyond the left edge
         for _ in 0..min(width, blur_radius + 1) {
             let bb = get_right(ri); ri += 1;
-            val_r += isize::from(bb[0]) - isize::from(fv[0]);
-            val_g += isize::from(bb[1]) - isize::from(fv[1]);
-            val_b += isize::from(bb[2]) - isize::from(fv[2]);
+            for c in 0..CH { val[c] += isize::from(bb[c]) - isize::from(fv[c]); }
 
-            dst[ti] = [round(val_r as f32 * iarr) as u8,
-                            round(val_g as f32 * iarr) as u8,
-                            round(val_b as f32 * iarr) as u8];
+            dst[ti] = average(&val, iarr);
             ti += 1; // VERTICAL : ti += width, same with the other areas
         }
 
@@ -291,13 +307,9 @@ fn box_blur_horz(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize
                 let bb1 = src[ri]; ri += 1;
                 let bb2 = src[li]; li += 1;
 
-                val_r += isize::from(bb1[0]) - isize::from(bb2[0]);
-                val_g += isize::from(bb1[1]) - isize::from(bb2[1]);
-                val_b += isize::from(bb1[2]) - isize::from(bb2[2]);
+                for c in 0..CH { val[c] += isize::from(bb1[c]) - isize::from(bb2[c]); }
 
-                dst[ti] = [round(val_r as f32 * iarr) as u8,
-                                round(val_g as f32 * iarr) as u8,
-                                round(val_b as f32 * iarr) as u8];
+                dst[ti] = average(&val, iarr);
                 ti += 1;
             }
 
@@ -305,193 +317,9 @@ fn box_blur_horz(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize
             for _ in 0..min(width - blur_radius - 1, blur_radius) {
                 let bb = get_left(li); li += 1;
 
-                val_r += isize::from(lv[0]) - isize::from(bb[0]);
-                val_g += isize::from(lv[1]) - isize::from(bb[1]);
-                val_b += isize::from(lv[2]) - isize::from(bb[2]);
+                for c in 0..CH { val[c] += isize::from(lv[c]) - isize::from(bb[c]); }
 
-                dst[ti] = [round(val_r as f32 * iarr) as u8,
-                                round(val_g as f32 * iarr) as u8,
-                                round(val_b as f32 * iarr) as u8];
-                ti += 1;
-            }
-        }
-    }
-}
-
-#[inline]
-fn box_blur_single_channel(scratch: &mut [u8], buf: &mut [u8], width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
-{
-    box_blur_horz_single_channel(buf, scratch, width, height, blur_radius_horz);
-    box_blur_vert_single_channel(scratch, buf, width, height, blur_radius_vert);
-}
-
-#[inline]
-fn box_blur_vert_single_channel(src: &[u8], dst: &mut [u8], width: usize, height: usize, blur_radius: usize)
-{
-    if blur_radius == 0 {
-        dst.copy_from_slice(src);
-        return;
-    }
-
-    let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
-
-    for i in 0..width {
-
-        let col_start = i; //inclusive
-        let col_end = i + width * (height - 1); //inclusive
-        let mut ti: usize = i;
-        let mut li: usize = ti;
-        let mut ri: usize = ti + blur_radius * width;
-
-        let fv: u8 = src[col_start];
-        let lv: u8 = src[col_end];
-
-        let mut val_r: isize = (blur_radius as isize + 1) * isize::from(fv);
-
-        // Get the pixel at the specified index, or the first pixel of the column
-        // if the index is beyond the top edge of the image
-        let get_top = |i: usize| {
-            if i < col_start {
-                fv
-            } else {
-                src[i]
-            }
-        };
-
-        // Get the pixel at the specified index, or the last pixel of the column
-        // if the index is beyond the bottom edge of the image
-        let get_bottom = |i: usize| {
-            if i > col_end {
-                lv
-            } else {
-                src[i]
-            }
-        };
-
-        for j in 0..min(blur_radius, height) {
-            let bb = src[ti + j * width];
-            val_r += isize::from(bb);
-        }
-        if blur_radius > height {
-            val_r += (blur_radius - height) as isize * isize::from(lv);
-        }
-
-        for _ in 0..min(height, blur_radius + 1) {
-            let bb = get_bottom(ri); ri += width;
-            val_r += isize::from(bb) - isize::from(fv);
-
-            dst[ti] = round(val_r as f32 * iarr) as u8;
-            ti += width;
-        }
-
-        if height > blur_radius { // otherwise `(height - blur_radius)` will underflow
-            for _ in (blur_radius + 1)..(height - blur_radius) {
-
-                let bb1 = src[ri]; ri += width;
-                let bb2 = src[li]; li += width;
-
-                val_r += isize::from(bb1) - isize::from(bb2);
-
-                dst[ti] = round(val_r as f32 * iarr) as u8;
-                ti += width;
-            }
-
-            for _ in 0..min(height - blur_radius - 1, blur_radius) {
-                let bb = get_top(li); li += width;
-
-                val_r += isize::from(lv) - isize::from(bb);
-
-                dst[ti] = round(val_r as f32 * iarr) as u8;
-                ti += width;
-            }
-        }
-    }
-}
-
-#[inline]
-fn box_blur_horz_single_channel(src: &[u8], dst: &mut [u8], width: usize, height: usize, blur_radius: usize)
-{
-    if blur_radius == 0 {
-        dst.copy_from_slice(src);
-        return;
-    }
-
-    let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
-
-    for i in 0..height {
-
-        let row_start: usize = i * width; // inclusive
-        let row_end: usize = (i + 1) * width - 1; // inclusive
-        let mut ti: usize = i * width; // VERTICAL: $i;
-        let mut li: usize = ti;
-        let mut ri: usize = ti + blur_radius;
-
-        let fv: u8 = src[row_start];
-        let lv: u8 = src[row_end]; // VERTICAL: $src[ti + $width - 1];
-
-        let mut val_r: isize = (blur_radius as isize + 1) * isize::from(fv);
-
-        // Get the pixel at the specified index, or the first pixel of the row
-        // if the index is beyond the left edge of the image
-        let get_left = |i: usize| {
-            if i < row_start {
-                fv
-            } else {
-                src[i]
-            }
-        };
-
-        // Get the pixel at the specified index, or the last pixel of the row
-        // if the index is beyond the right edge of the image
-        let get_right = |i: usize| {
-            if i > row_end {
-                lv
-            } else {
-                src[i]
-            }
-        };
-
-        for j in 0..min(blur_radius, width) {
-            let bb = src[ti + j]; // VERTICAL: ti + j * width
-            val_r += isize::from(bb);
-        }
-
-        // See `box_blur_horz`: the row is `width` long, not `height`.
-        if blur_radius > width {
-            val_r += (blur_radius - width) as isize * isize::from(lv);
-        }
-
-
-        // Process the left side where we need pixels from beyond the left edge
-        for _ in 0..min(width, blur_radius + 1) {
-            let bb = get_right(ri); ri += 1;
-            val_r += isize::from(bb) - isize::from(fv);
-
-            dst[ti] = round(val_r as f32 * iarr) as u8;
-            ti += 1; // VERTICAL : ti += width, same with the other areas
-        }
-
-        if width > blur_radius { // otherwise `(width - blur_radius)` will underflow
-            // Process the middle where we know we won't bump into borders
-            // without the extra indirection of get_left/get_right. This is faster.
-            for _ in (blur_radius + 1)..(width - blur_radius) {
-
-                let bb1 = src[ri]; ri += 1;
-                let bb2 = src[li]; li += 1;
-
-                val_r += isize::from(bb1) - isize::from(bb2);
-
-                dst[ti] = round(val_r as f32 * iarr) as u8;
-                ti += 1;
-            }
-
-            // Process the right side where we need pixels from beyond the right edge
-            for _ in 0..min(width - blur_radius - 1, blur_radius) {
-                let bb = get_left(li); li += 1;
-
-                val_r += isize::from(lv) - isize::from(bb);
-
-                dst[ti] = round(val_r as f32 * iarr) as u8;
+                dst[ti] = average(&val, iarr);
                 ti += 1;
             }
         }
@@ -501,7 +329,7 @@ fn box_blur_horz_single_channel(src: &[u8], dst: &mut [u8], width: usize, height
 #[inline]
 /// Fast rounding for x <= 2^23.
 /// This is orders of magnitude faster than built-in rounding intrinsic.
-/// 
+///
 /// Source: https://stackoverflow.com/a/42386149/585725
 fn round(mut x: f32) -> f32 {
     x += 12582912.0;
