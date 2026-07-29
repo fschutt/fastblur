@@ -6,6 +6,7 @@ repository = "https://github.com/fschutt/fastblur"
 homepage = "https://github.com/fschutt/fastblur"
 license = "Apache-2.0 OR MIT"
 description = "Linear-time gaussian blur"
+edition = "2018"
 
 [features]
 # The benchmarks use `#[bench]`, which needs a nightly compiler.
