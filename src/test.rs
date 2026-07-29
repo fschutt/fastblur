@@ -97,15 +97,15 @@ fn box_sizes_match_the_reference_algorithm() {
     // Reference values, computed with `boxesForGauss` from
     // http://blog.ivank.net/fastest-gaussian-blur.html. Two narrow boxes plus
     // one wide one; three *equal* boxes would mean the `+ 1` escaped the sqrt.
-    assert_eq!(create_box_gauss(1.0, 3), vec![1, 1, 3]);
-    assert_eq!(create_box_gauss(2.0, 3), vec![3, 3, 5]);
-    assert_eq!(create_box_gauss(5.0, 3), vec![9, 9, 11]);
-    assert_eq!(create_box_gauss(10.0, 3), vec![19, 19, 21]);
-    assert_eq!(create_box_gauss(20.0, 3), vec![39, 39, 41]);
+    assert_eq!(create_box_gauss::<3>(1.0), [1, 1, 3]);
+    assert_eq!(create_box_gauss::<3>(2.0), [3, 3, 5]);
+    assert_eq!(create_box_gauss::<3>(5.0), [9, 9, 11]);
+    assert_eq!(create_box_gauss::<3>(10.0), [19, 19, 21]);
+    assert_eq!(create_box_gauss::<3>(20.0), [39, 39, 41]);
 
     // A sigma of zero or less means "don't blur", i.e. a box width of one.
-    assert_eq!(create_box_gauss(0.0, 3), vec![1, 1, 1]);
-    assert_eq!(create_box_gauss(-1.0, 3), vec![1, 1, 1]);
+    assert_eq!(create_box_gauss::<3>(0.0), [1, 1, 1]);
+    assert_eq!(create_box_gauss::<3>(-1.0), [1, 1, 1]);
 }
 
 #[test]

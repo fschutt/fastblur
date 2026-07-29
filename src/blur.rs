@@ -28,8 +28,8 @@ pub fn gaussian_blur(data: &mut Vec<[u8;3]>, width: usize, height: usize, blur_r
 pub fn gaussian_blur_asymmetric(data: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32) {
     if width == 0 || height == 0 { return; }
 
-    let boxes_horz = create_box_gauss(blur_radius_horizontal, 3);
-    let boxes_vert = create_box_gauss(blur_radius_vertical, 3);
+    let boxes_horz = create_box_gauss::<3>(blur_radius_horizontal);
+    let boxes_vert = create_box_gauss::<3>(blur_radius_vertical);
     let mut scratch = data.clone();
 
     for (box_size_horz, box_size_vert) in boxes_horz.iter().zip(boxes_vert.iter()) {
@@ -40,15 +40,19 @@ pub fn gaussian_blur_asymmetric(data: &mut Vec<[u8;3]>, width: usize, height: us
 }
 
 #[inline]
-/// If there is no valid size (e.g. radius is negative, NaN or infinite),
-/// returns `vec![1; len]` which would translate to blur radius of 0
-pub(crate) fn create_box_gauss(sigma: f32, n: usize)
--> Vec<i32>
+/// Returns the widths of the `N` box blur passes that together approximate a
+/// gaussian blur of the given sigma.
+///
+/// If there is no valid size (the sigma is zero, negative or NaN) this returns
+/// `[1; N]`, which means a blur radius of 0.
+pub(crate) fn create_box_gauss<const N: usize>(sigma: f32) -> [i32; N]
 {
-    // NaN compares false here and so takes the `else` branch; an infinite
+    let mut sizes = [1i32; N];
+
+    // NaN compares false here and so keeps the "don't blur" widths; an infinite
     // sigma does not, and is caught by the `MAX_BOX_WIDTH` clamp below.
     if sigma > 0.0 {
-        let n_float = n as f32;
+        let n_float = N as f32;
 
         // Ideal averaging filter width.
         //
@@ -72,28 +76,20 @@ pub(crate) fn create_box_gauss(sigma: f32, n: usize)
                     (-4.0 * wl_float - 4.0);
         let m: usize = m_ideal.round() as usize;
 
-        let mut sizes = Vec::<i32>::new();
-
-        for i in 0..n {
-            if i < m {
-                sizes.push(wl);
-            } else {
-                sizes.push(wu);
-            }
+        for (i, size) in sizes.iter_mut().enumerate() {
+            *size = if i < m { wl } else { wu };
         }
-
-        sizes
-    } else {
-        vec![1; n]
     }
+
+    sizes
 }
 
 /// Same as gaussian_blur, but allows using different blur radii for vertical and horizontal passes
 pub fn gaussian_blur_asymmetric_single_channel(data: &mut Vec<u8>, width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32) {
     if width == 0 || height == 0 { return; }
 
-    let boxes_horz = create_box_gauss(blur_radius_horizontal, 3);
-    let boxes_vert = create_box_gauss(blur_radius_vertical, 3);
+    let boxes_horz = create_box_gauss::<3>(blur_radius_horizontal);
+    let boxes_vert = create_box_gauss::<3>(blur_radius_vertical);
     let mut scratch = data.clone();
 
     for (box_size_horz, box_size_vert) in boxes_horz.iter().zip(boxes_vert.iter()) {
