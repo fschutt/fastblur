@@ -1,4 +1,5 @@
 use std::cmp::min;
+use std::iter::repeat;
 
 /// Widest box we will ever hand out.
 ///
@@ -122,15 +123,6 @@ pub(crate) fn create_box_gauss<const N: usize>(sigma: f32) -> [i32; N]
     sizes
 }
 
-/// Runs one horizontal and one vertical box pass over `buf`, using `scratch`
-/// as the intermediate. The finished image ends up in `buf`.
-#[inline]
-fn box_blur<const CH: usize>(scratch: &mut [[u8; CH]], buf: &mut [[u8; CH]], width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
-{
-    box_blur_horz(buf, scratch, width, height, blur_radius_horz);
-    box_blur_vert(scratch, buf, width, height, blur_radius_vert);
-}
-
 /// Divides the running window sum by the window size and packs it back into a pixel.
 #[inline]
 fn average<const CH: usize>(val: &[isize; CH], iarr: f32) -> [u8; CH]
@@ -142,97 +134,59 @@ fn average<const CH: usize>(val: &[isize; CH], iarr: f32) -> [u8; CH]
     out
 }
 
+/// How the three stretches of a blur pass split up.
+///
+/// Averaging over a window that is clamped at both ends means
+///
+///     out[0] = ((radius + 1) * first + src[1 ..= radius].sum()) / (2 * radius + 1)
+///     out[i] = out[i - 1] + src[i + radius] - src[i - radius - 1]
+///
+/// with both of those indices clamped to the ends of the line. Only the first
+/// and last stretches actually need the clamping: over the middle - which is
+/// all of a real image - both ends of the window are inside the line, so it
+/// becomes a plain `zip` of three slices with nothing to check and nothing to
+/// branch on.
 #[inline]
-fn box_blur_vert<const CH: usize>(src: &[[u8; CH]], dst: &mut [[u8; CH]], width: usize, height: usize, blur_radius: usize)
-{
-    if blur_radius == 0 {
-        dst.copy_from_slice(src);
-        return;
+fn split(len: usize, radius: usize) -> (usize, usize) {
+    (min(len, radius + 1), len.saturating_sub(2 * radius + 1))
+}
+
+/// Window sum for the first output pixel, primed one step short: the first turn
+/// of the caller's loop brings `src[radius]` in and drops the clamped
+/// `src[-radius - 1]`, which completes it.
+#[inline]
+fn prime<const CH: usize>(src: &[[u8; CH]], first: [u8; CH], last: [u8; CH], radius: usize) -> [isize; CH] {
+    let mut val = [0isize; CH];
+    for c in 0..CH {
+        val[c] = (radius as isize + 1) * isize::from(first[c]);
     }
-
-    let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
-
-    for i in 0..width {
-
-        let col_start = i; //inclusive
-        let col_end = i + width * (height - 1); //inclusive
-        let mut ti: usize = i;
-        let mut li: usize = ti;
-        let mut ri: usize = ti + blur_radius * width;
-
-        let fv: [u8; CH] = src[col_start];
-        let lv: [u8; CH] = src[col_end];
-
-        let mut val = [0isize; CH];
+    for px in src.iter().take(radius) {
+        for c in 0..CH { val[c] += isize::from(px[c]); }
+    }
+    // A window wider than the line reaches past the end, onto the last pixel.
+    if radius > src.len() {
         for c in 0..CH {
-            val[c] = (blur_radius as isize + 1) * isize::from(fv[c]);
-        }
-
-        // Get the pixel at the specified index, or the first pixel of the column
-        // if the index is beyond the top edge of the image
-        let get_top = |i: usize| {
-            if i < col_start {
-                fv
-            } else {
-                src[i]
-            }
-        };
-
-        // Get the pixel at the specified index, or the last pixel of the column
-        // if the index is beyond the bottom edge of the image
-        let get_bottom = |i: usize| {
-            if i > col_end {
-                lv
-            } else {
-                src[i]
-            }
-        };
-
-        for j in 0..min(blur_radius, height) {
-            let bb = src[ti + j * width];
-            for c in 0..CH { val[c] += isize::from(bb[c]); }
-        }
-        if blur_radius > height {
-            for c in 0..CH {
-                val[c] += (blur_radius - height) as isize * isize::from(lv[c]);
-            }
-        }
-
-        for _ in 0..min(height, blur_radius + 1) {
-            let bb = get_bottom(ri); ri += width;
-            for c in 0..CH { val[c] += isize::from(bb[c]) - isize::from(fv[c]); }
-
-            dst[ti] = average(&val, iarr);
-            ti += width;
-        }
-
-        if height > blur_radius { // otherwise `(height - blur_radius)` will underflow
-            for _ in (blur_radius + 1)..(height - blur_radius) {
-
-                let bb1 = src[ri]; ri += width;
-                let bb2 = src[li]; li += width;
-
-                for c in 0..CH { val[c] += isize::from(bb1[c]) - isize::from(bb2[c]); }
-
-                dst[ti] = average(&val, iarr);
-                ti += width;
-            }
-
-            for _ in 0..min(height - blur_radius - 1, blur_radius) {
-                let bb = get_top(li); li += width;
-
-                for c in 0..CH { val[c] += isize::from(lv[c]) - isize::from(bb[c]); }
-
-                dst[ti] = average(&val, iarr);
-                ti += width;
-            }
+            val[c] += (radius - src.len()) as isize * isize::from(last[c]);
         }
     }
+    val
+}
+
+/// Runs one horizontal and one vertical box pass over `buf`, using `scratch`
+/// as the intermediate. The finished image ends up in `buf`.
+#[inline]
+fn box_blur<const CH: usize>(scratch: &mut [[u8; CH]], buf: &mut [[u8; CH]], width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
+{
+    box_blur_horz(buf, scratch, width, height, blur_radius_horz);
+    box_blur_vert(scratch, buf, width, height, blur_radius_vert);
 }
 
 #[inline]
 fn box_blur_horz<const CH: usize>(src: &[[u8; CH]], dst: &mut [[u8; CH]], width: usize, height: usize, blur_radius: usize)
 {
+    let src = &src[..width * height];
+    let dst = &mut dst[..width * height];
+
     if blur_radius == 0 {
         dst.copy_from_slice(src);
         return;
@@ -240,88 +194,119 @@ fn box_blur_horz<const CH: usize>(src: &[[u8; CH]], dst: &mut [[u8; CH]], width:
 
     let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
 
-    for i in 0..height {
+    // Rows are contiguous, so `chunks_exact` hands out exactly one each.
+    for (src_row, dst_row) in src.chunks_exact(width).zip(dst.chunks_exact_mut(width)) {
+        blur_row(src_row, dst_row, blur_radius, iarr);
+    }
+}
 
-        let row_start: usize = i * width; // inclusive
-        let row_end: usize = (i + 1) * width - 1; // inclusive
-        let mut ti: usize = i * width; // VERTICAL: $i;
-        let mut li: usize = ti;
-        let mut ri: usize = ti + blur_radius;
+#[inline]
+fn blur_row<const CH: usize>(src: &[[u8; CH]], dst: &mut [[u8; CH]], radius: usize, iarr: f32)
+{
+    let len = src.len();
+    let first = src[0];
+    let last = src[len - 1];
+    let (n1, n2) = split(len, radius);
 
-        let fv: [u8; CH] = src[row_start];
-        let lv: [u8; CH] = src[row_end]; // VERTICAL: $src[ti + $width - 1];
+    let mut val = prime(src, first, last, radius);
 
-        let mut val = [0isize; CH];
+    // Left edge: the pixel leaving the window is the clamped first one.
+    let entering = src.iter().copied().skip(radius).chain(repeat(last));
+    for (inc, out) in entering.zip(dst[..n1].iter_mut()) {
         for c in 0..CH {
-            val[c] = (blur_radius as isize + 1) * isize::from(fv[c]);
+            val[c] += isize::from(inc[c]) - isize::from(first[c]);
         }
+        *out = average(&val, iarr);
+    }
 
-        // Get the pixel at the specified index, or the first pixel of the row
-        // if the index is beyond the left edge of the image
-        let get_left = |i: usize| {
-            if i < row_start {
-                fv
-            } else {
-                src[i]
-            }
-        };
-
-        // Get the pixel at the specified index, or the last pixel of the row
-        // if the index is beyond the right edge of the image
-        let get_right = |i: usize| {
-            if i > row_end {
-                lv
-            } else {
-                src[i]
-            }
-        };
-
-        for j in 0..min(blur_radius, width) {
-            let bb = src[ti + j]; // VERTICAL: ti + j * width
-            for c in 0..CH { val[c] += isize::from(bb[c]); }
+    // Middle: both ends of the window are inside the row.
+    for ((inc, dec), out) in src[min(2 * radius + 1, len)..].iter()
+        .zip(src.iter())
+        .zip(dst[n1..].iter_mut())
+    {
+        for c in 0..CH {
+            val[c] += isize::from(inc[c]) - isize::from(dec[c]);
         }
-        // The row is `width` long, so this has to subtract `width`; subtracting
-        // `height` (a copy-paste slip from the vertical pass) underflows as
-        // soon as the image is taller than the blur box is wide.
-        if blur_radius > width {
-            for c in 0..CH {
-                val[c] += (blur_radius - width) as isize * isize::from(lv[c]);
-            }
+        *out = average(&val, iarr);
+    }
+
+    // Right edge: the pixel entering the window is the clamped last one.
+    for (dec, out) in src[n2..].iter().zip(dst[n1 + n2..].iter_mut()) {
+        for c in 0..CH {
+            val[c] += isize::from(last[c]) - isize::from(dec[c]);
         }
+        *out = average(&val, iarr);
+    }
+}
 
+/// Blurs vertically by sweeping down the image, keeping one running window sum
+/// per column.
+///
+/// Transcribing the horizontal pass directly would walk each column with a
+/// stride of `width`, which touches one pixel per cache line. Going row by row
+/// instead keeps every read and write contiguous and lets the per-column sums
+/// be updated by zipping whole rows together.
+#[inline]
+fn box_blur_vert<const CH: usize>(src: &[[u8; CH]], dst: &mut [[u8; CH]], width: usize, height: usize, blur_radius: usize)
+{
+    let src = &src[..width * height];
+    let dst = &mut dst[..width * height];
 
-        // Process the left side where we need pixels from beyond the left edge
-        for _ in 0..min(width, blur_radius + 1) {
-            let bb = get_right(ri); ri += 1;
-            for c in 0..CH { val[c] += isize::from(bb[c]) - isize::from(fv[c]); }
+    if blur_radius == 0 {
+        dst.copy_from_slice(src);
+        return;
+    }
 
-            dst[ti] = average(&val, iarr);
-            ti += 1; // VERTICAL : ti += width, same with the other areas
+    let iarr = 1.0 / (blur_radius + blur_radius + 1) as f32;
+    let (n1, n2) = split(height, blur_radius);
+    let first = &src[..width];
+    let last = &src[width * (height - 1)..];
+
+    let mut acc = vec![[0isize; CH]; width];
+    for (a, px) in acc.iter_mut().zip(first) {
+        for c in 0..CH {
+            a[c] = (blur_radius as isize + 1) * isize::from(px[c]);
         }
+    }
+    for row in src.chunks_exact(width).take(blur_radius) {
+        for (a, px) in acc.iter_mut().zip(row) {
+            for c in 0..CH { a[c] += isize::from(px[c]); }
+        }
+    }
+    if blur_radius > height {
+        let extra = (blur_radius - height) as isize;
+        for (a, px) in acc.iter_mut().zip(last) {
+            for c in 0..CH { a[c] += extra * isize::from(px[c]); }
+        }
+    }
 
-        if width > blur_radius { // otherwise `(width - blur_radius)` will underflow
-            // Process the middle where we know we won't bump into borders
-            // without the extra indirection of get_left/get_right. This is faster.
-            for _ in (blur_radius + 1)..(width - blur_radius) {
+    // Top edge: the row leaving the window is the clamped first one.
+    let entering = src.chunks_exact(width).skip(blur_radius).chain(repeat(last));
+    for (inc, out_row) in entering.zip(dst.chunks_exact_mut(width).take(n1)) {
+        for (((a, i), f), out) in acc.iter_mut().zip(inc).zip(first).zip(out_row.iter_mut()) {
+            for c in 0..CH { a[c] += isize::from(i[c]) - isize::from(f[c]); }
+            *out = average(a, iarr);
+        }
+    }
 
-                let bb1 = src[ri]; ri += 1;
-                let bb2 = src[li]; li += 1;
+    // Middle: the window sits entirely inside the image.
+    for ((inc, dec), out_row) in src.chunks_exact(width).skip(min(2 * blur_radius + 1, height))
+        .zip(src.chunks_exact(width))
+        .zip(dst.chunks_exact_mut(width).skip(n1))
+    {
+        for (((a, i), d), out) in acc.iter_mut().zip(inc).zip(dec).zip(out_row.iter_mut()) {
+            for c in 0..CH { a[c] += isize::from(i[c]) - isize::from(d[c]); }
+            *out = average(a, iarr);
+        }
+    }
 
-                for c in 0..CH { val[c] += isize::from(bb1[c]) - isize::from(bb2[c]); }
-
-                dst[ti] = average(&val, iarr);
-                ti += 1;
-            }
-
-            // Process the right side where we need pixels from beyond the right edge
-            for _ in 0..min(width - blur_radius - 1, blur_radius) {
-                let bb = get_left(li); li += 1;
-
-                for c in 0..CH { val[c] += isize::from(lv[c]) - isize::from(bb[c]); }
-
-                dst[ti] = average(&val, iarr);
-                ti += 1;
-            }
+    // Bottom edge: the row entering the window is the clamped last one.
+    for (dec, out_row) in src.chunks_exact(width).skip(n2)
+        .zip(dst.chunks_exact_mut(width).skip(n1 + n2))
+    {
+        for (((a, l), d), out) in acc.iter_mut().zip(last).zip(dec).zip(out_row.iter_mut()) {
+            for c in 0..CH { a[c] += isize::from(l[c]) - isize::from(d[c]); }
+            *out = average(a, iarr);
         }
     }
 }
