@@ -161,3 +161,54 @@ fn degenerate_sizes_do_not_panic() {
         gaussian_blur_asymmetric_single_channel(&mut gray, w, h, 7.0, 7.0);
     }
 }
+
+/// Deterministic pseudo-random image, so the tests don't depend on the PNG assets.
+fn lcg_image(width: usize, height: usize) -> Vec<[u8; 3]> {
+    let mut state: u32 = 0x2545_F491;
+    let mut next = || {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 24) as u8
+    };
+    (0..width * height).map(|_| [next(), next(), next()]).collect()
+}
+
+fn transpose(src: &[[u8; 3]], width: usize, height: usize) -> Vec<[u8; 3]> {
+    let mut out = vec![[0u8; 3]; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            out[x * height + y] = src[y * width + x];
+        }
+    }
+    out
+}
+
+#[test]
+fn blur_is_symmetric_under_transpose() {
+    use super::gaussian_blur;
+
+    // A symmetric blur has to treat both axes alike: blurring the transposed
+    // image must give the transpose of the blurred image, give or take the
+    // rounding to u8 that each pass does.
+    //
+    // It used to not. `box_blur` left its result in the scratch buffer rather
+    // than the caller's, so the caller got three horizontal but only two
+    // vertical passes - and the vertical pass that went missing was the widest
+    // of the three. Max channel difference here was 149 at sigma 1.
+    let (width, height) = (37usize, 23usize);
+    let img = lcg_image(width, height);
+
+    for &sigma in [1.0f32, 3.0, 6.0, 12.0].iter() {
+        let mut direct = img.clone();
+        gaussian_blur(&mut direct, width, height, sigma);
+
+        let mut flipped = transpose(&img, width, height);
+        gaussian_blur(&mut flipped, height, width, sigma);
+        let flipped = transpose(&flipped, height, width);
+
+        let max_diff = direct.iter().zip(flipped.iter())
+            .flat_map(|(p, q)| (0..3).map(move |c| (p[c] as i32 - q[c] as i32).abs()))
+            .max().unwrap();
+
+        assert!(max_diff <= 1, "axes disagree by {} at sigma {}", max_diff, sigma);
+    }
+}

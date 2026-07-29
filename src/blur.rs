@@ -30,12 +30,12 @@ pub fn gaussian_blur_asymmetric(data: &mut Vec<[u8;3]>, width: usize, height: us
 
     let boxes_horz = create_box_gauss(blur_radius_horizontal, 3);
     let boxes_vert = create_box_gauss(blur_radius_vertical, 3);
-    let mut backbuf = data.clone();
+    let mut scratch = data.clone();
 
     for (box_size_horz, box_size_vert) in boxes_horz.iter().zip(boxes_vert.iter()) {
         let radius_horz = box_radius(*box_size_horz, width);
         let radius_vert = box_radius(*box_size_vert, height);
-        box_blur(&mut backbuf, data, width, height, radius_horz, radius_vert);
+        box_blur(&mut scratch, data, width, height, radius_horz, radius_vert);
     }
 }
 
@@ -94,28 +94,29 @@ pub fn gaussian_blur_asymmetric_single_channel(data: &mut Vec<u8>, width: usize,
 
     let boxes_horz = create_box_gauss(blur_radius_horizontal, 3);
     let boxes_vert = create_box_gauss(blur_radius_vertical, 3);
-    let mut backbuf = data.clone();
+    let mut scratch = data.clone();
 
     for (box_size_horz, box_size_vert) in boxes_horz.iter().zip(boxes_vert.iter()) {
         let radius_horz = box_radius(*box_size_horz, width);
         let radius_vert = box_radius(*box_size_vert, height);
-        box_blur_single_channel(&mut backbuf, data, width, height, radius_horz, radius_vert);
+        box_blur_single_channel(&mut scratch, data, width, height, radius_horz, radius_vert);
     }
 }
 
-/// Needs 2x the same image
+/// Runs one horizontal and one vertical box pass over `buf`, using `scratch`
+/// as the intermediate. The finished image ends up in `buf`.
 #[inline]
-fn box_blur(backbuf: &mut Vec<[u8;3]>, frontbuf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
+fn box_blur(scratch: &mut Vec<[u8;3]>, buf: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
 {
-    box_blur_horz(backbuf, frontbuf, width, height, blur_radius_horz);
-    box_blur_vert(frontbuf, backbuf, width, height, blur_radius_vert);
+    box_blur_horz(buf, scratch, width, height, blur_radius_horz);
+    box_blur_vert(scratch, buf, width, height, blur_radius_vert);
 }
 
 #[inline]
-fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
+fn box_blur_vert(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
 {
     if blur_radius == 0 {
-        frontbuf.copy_from_slice(backbuf);
+        dst.copy_from_slice(src);
         return;
     }
 
@@ -129,8 +130,8 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
         let mut li: usize = ti;
         let mut ri: usize = ti + blur_radius * width;
 
-        let fv: [u8;3] = backbuf[col_start];
-        let lv: [u8;3] = backbuf[col_end];
+        let fv: [u8;3] = src[col_start];
+        let lv: [u8;3] = src[col_end];
 
         let mut val_r: isize = (blur_radius as isize + 1) * isize::from(fv[0]);
         let mut val_g: isize = (blur_radius as isize + 1) * isize::from(fv[1]);
@@ -142,7 +143,7 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             if i < col_start {
                 fv
             } else {
-                backbuf[i]
+                src[i]
             }
         };
 
@@ -152,12 +153,12 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             if i > col_end {
                 lv
             } else {
-                backbuf[i]
+                src[i]
             }
         };
 
         for j in 0..min(blur_radius, height) {
-            let bb = backbuf[ti + j * width];
+            let bb = src[ti + j * width];
             val_r += isize::from(bb[0]);
             val_g += isize::from(bb[1]);
             val_b += isize::from(bb[2]);
@@ -174,7 +175,7 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             val_g += isize::from(bb[1]) - isize::from(fv[1]);
             val_b += isize::from(bb[2]) - isize::from(fv[2]);
 
-            frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+            dst[ti] = [round(val_r as f32 * iarr) as u8,
                             round(val_g as f32 * iarr) as u8,
                             round(val_b as f32 * iarr) as u8];
             ti += width;
@@ -183,14 +184,14 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
         if height > blur_radius { // otherwise `(height - blur_radius)` will underflow
             for _ in (blur_radius + 1)..(height - blur_radius) {
 
-                let bb1 = backbuf[ri]; ri += width;
-                let bb2 = backbuf[li]; li += width;
+                let bb1 = src[ri]; ri += width;
+                let bb2 = src[li]; li += width;
 
                 val_r += isize::from(bb1[0]) - isize::from(bb2[0]);
                 val_g += isize::from(bb1[1]) - isize::from(bb2[1]);
                 val_b += isize::from(bb1[2]) - isize::from(bb2[2]);
 
-                frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                dst[ti] = [round(val_r as f32 * iarr) as u8,
                                 round(val_g as f32 * iarr) as u8,
                                 round(val_b as f32 * iarr) as u8];
                 ti += width;
@@ -203,7 +204,7 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
                 val_g += isize::from(lv[1]) - isize::from(bb[1]);
                 val_b += isize::from(lv[2]) - isize::from(bb[2]);
 
-                frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                dst[ti] = [round(val_r as f32 * iarr) as u8,
                                 round(val_g as f32 * iarr) as u8,
                                 round(val_b as f32 * iarr) as u8];
                 ti += width;
@@ -213,10 +214,10 @@ fn box_blur_vert(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
 }
 
 #[inline]
-fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
+fn box_blur_horz(src: &[[u8;3]], dst: &mut [[u8;3]], width: usize, height: usize, blur_radius: usize)
 {
     if blur_radius == 0 {
-        frontbuf.copy_from_slice(backbuf);
+        dst.copy_from_slice(src);
         return;
     }
 
@@ -230,8 +231,8 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
         let mut li: usize = ti;
         let mut ri: usize = ti + blur_radius;
 
-        let fv: [u8;3] = backbuf[row_start];
-        let lv: [u8;3] = backbuf[row_end]; // VERTICAL: $backbuf[ti + $width - 1];
+        let fv: [u8;3] = src[row_start];
+        let lv: [u8;3] = src[row_end]; // VERTICAL: $src[ti + $width - 1];
 
         let mut val_r: isize = (blur_radius as isize + 1) * isize::from(fv[0]);
         let mut val_g: isize = (blur_radius as isize + 1) * isize::from(fv[1]);
@@ -243,7 +244,7 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             if i < row_start {
                 fv
             } else {
-                backbuf[i]
+                src[i]
             }
         };
 
@@ -253,12 +254,12 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             if i > row_end {
                 lv
             } else {
-                backbuf[i]
+                src[i]
             }
         };
 
         for j in 0..min(blur_radius, width) {
-            let bb = backbuf[ti + j]; // VERTICAL: ti + j * width
+            let bb = src[ti + j]; // VERTICAL: ti + j * width
             val_r += isize::from(bb[0]);
             val_g += isize::from(bb[1]);
             val_b += isize::from(bb[2]);
@@ -280,7 +281,7 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             val_g += isize::from(bb[1]) - isize::from(fv[1]);
             val_b += isize::from(bb[2]) - isize::from(fv[2]);
 
-            frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+            dst[ti] = [round(val_r as f32 * iarr) as u8,
                             round(val_g as f32 * iarr) as u8,
                             round(val_b as f32 * iarr) as u8];
             ti += 1; // VERTICAL : ti += width, same with the other areas
@@ -291,14 +292,14 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             // without the extra indirection of get_left/get_right. This is faster.
             for _ in (blur_radius + 1)..(width - blur_radius) {
 
-                let bb1 = backbuf[ri]; ri += 1;
-                let bb2 = backbuf[li]; li += 1;
+                let bb1 = src[ri]; ri += 1;
+                let bb2 = src[li]; li += 1;
 
                 val_r += isize::from(bb1[0]) - isize::from(bb2[0]);
                 val_g += isize::from(bb1[1]) - isize::from(bb2[1]);
                 val_b += isize::from(bb1[2]) - isize::from(bb2[2]);
 
-                frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                dst[ti] = [round(val_r as f32 * iarr) as u8,
                                 round(val_g as f32 * iarr) as u8,
                                 round(val_b as f32 * iarr) as u8];
                 ti += 1;
@@ -312,7 +313,7 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
                 val_g += isize::from(lv[1]) - isize::from(bb[1]);
                 val_b += isize::from(lv[2]) - isize::from(bb[2]);
 
-                frontbuf[ti] = [round(val_r as f32 * iarr) as u8,
+                dst[ti] = [round(val_r as f32 * iarr) as u8,
                                 round(val_g as f32 * iarr) as u8,
                                 round(val_b as f32 * iarr) as u8];
                 ti += 1;
@@ -322,17 +323,17 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
 }
 
 #[inline]
-fn box_blur_single_channel(backbuf: &mut [u8], frontbuf: &mut [u8], width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
+fn box_blur_single_channel(scratch: &mut [u8], buf: &mut [u8], width: usize, height: usize, blur_radius_horz: usize, blur_radius_vert: usize)
 {
-    box_blur_horz_single_channel(backbuf, frontbuf, width, height, blur_radius_horz);
-    box_blur_vert_single_channel(frontbuf, backbuf, width, height, blur_radius_vert);
+    box_blur_horz_single_channel(buf, scratch, width, height, blur_radius_horz);
+    box_blur_vert_single_channel(scratch, buf, width, height, blur_radius_vert);
 }
 
 #[inline]
-fn box_blur_vert_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usize, height: usize, blur_radius: usize)
+fn box_blur_vert_single_channel(src: &[u8], dst: &mut [u8], width: usize, height: usize, blur_radius: usize)
 {
     if blur_radius == 0 {
-        frontbuf.copy_from_slice(backbuf);
+        dst.copy_from_slice(src);
         return;
     }
 
@@ -346,8 +347,8 @@ fn box_blur_vert_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
         let mut li: usize = ti;
         let mut ri: usize = ti + blur_radius * width;
 
-        let fv: u8 = backbuf[col_start];
-        let lv: u8 = backbuf[col_end];
+        let fv: u8 = src[col_start];
+        let lv: u8 = src[col_end];
 
         let mut val_r: isize = (blur_radius as isize + 1) * isize::from(fv);
 
@@ -357,7 +358,7 @@ fn box_blur_vert_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
             if i < col_start {
                 fv
             } else {
-                backbuf[i]
+                src[i]
             }
         };
 
@@ -367,12 +368,12 @@ fn box_blur_vert_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
             if i > col_end {
                 lv
             } else {
-                backbuf[i]
+                src[i]
             }
         };
 
         for j in 0..min(blur_radius, height) {
-            let bb = backbuf[ti + j * width];
+            let bb = src[ti + j * width];
             val_r += isize::from(bb);
         }
         if blur_radius > height {
@@ -383,19 +384,19 @@ fn box_blur_vert_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
             let bb = get_bottom(ri); ri += width;
             val_r += isize::from(bb) - isize::from(fv);
 
-            frontbuf[ti] = round(val_r as f32 * iarr) as u8;
+            dst[ti] = round(val_r as f32 * iarr) as u8;
             ti += width;
         }
 
         if height > blur_radius { // otherwise `(height - blur_radius)` will underflow
             for _ in (blur_radius + 1)..(height - blur_radius) {
 
-                let bb1 = backbuf[ri]; ri += width;
-                let bb2 = backbuf[li]; li += width;
+                let bb1 = src[ri]; ri += width;
+                let bb2 = src[li]; li += width;
 
                 val_r += isize::from(bb1) - isize::from(bb2);
 
-                frontbuf[ti] = round(val_r as f32 * iarr) as u8;
+                dst[ti] = round(val_r as f32 * iarr) as u8;
                 ti += width;
             }
 
@@ -404,7 +405,7 @@ fn box_blur_vert_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
 
                 val_r += isize::from(lv) - isize::from(bb);
 
-                frontbuf[ti] = round(val_r as f32 * iarr) as u8;
+                dst[ti] = round(val_r as f32 * iarr) as u8;
                 ti += width;
             }
         }
@@ -412,10 +413,10 @@ fn box_blur_vert_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
 }
 
 #[inline]
-fn box_blur_horz_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usize, height: usize, blur_radius: usize)
+fn box_blur_horz_single_channel(src: &[u8], dst: &mut [u8], width: usize, height: usize, blur_radius: usize)
 {
     if blur_radius == 0 {
-        frontbuf.copy_from_slice(backbuf);
+        dst.copy_from_slice(src);
         return;
     }
 
@@ -429,8 +430,8 @@ fn box_blur_horz_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
         let mut li: usize = ti;
         let mut ri: usize = ti + blur_radius;
 
-        let fv: u8 = backbuf[row_start];
-        let lv: u8 = backbuf[row_end]; // VERTICAL: $backbuf[ti + $width - 1];
+        let fv: u8 = src[row_start];
+        let lv: u8 = src[row_end]; // VERTICAL: $src[ti + $width - 1];
 
         let mut val_r: isize = (blur_radius as isize + 1) * isize::from(fv);
 
@@ -440,7 +441,7 @@ fn box_blur_horz_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
             if i < row_start {
                 fv
             } else {
-                backbuf[i]
+                src[i]
             }
         };
 
@@ -450,12 +451,12 @@ fn box_blur_horz_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
             if i > row_end {
                 lv
             } else {
-                backbuf[i]
+                src[i]
             }
         };
 
         for j in 0..min(blur_radius, width) {
-            let bb = backbuf[ti + j]; // VERTICAL: ti + j * width
+            let bb = src[ti + j]; // VERTICAL: ti + j * width
             val_r += isize::from(bb);
         }
 
@@ -470,7 +471,7 @@ fn box_blur_horz_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
             let bb = get_right(ri); ri += 1;
             val_r += isize::from(bb) - isize::from(fv);
 
-            frontbuf[ti] = round(val_r as f32 * iarr) as u8;
+            dst[ti] = round(val_r as f32 * iarr) as u8;
             ti += 1; // VERTICAL : ti += width, same with the other areas
         }
 
@@ -479,12 +480,12 @@ fn box_blur_horz_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
             // without the extra indirection of get_left/get_right. This is faster.
             for _ in (blur_radius + 1)..(width - blur_radius) {
 
-                let bb1 = backbuf[ri]; ri += 1;
-                let bb2 = backbuf[li]; li += 1;
+                let bb1 = src[ri]; ri += 1;
+                let bb2 = src[li]; li += 1;
 
                 val_r += isize::from(bb1) - isize::from(bb2);
 
-                frontbuf[ti] = round(val_r as f32 * iarr) as u8;
+                dst[ti] = round(val_r as f32 * iarr) as u8;
                 ti += 1;
             }
 
@@ -494,7 +495,7 @@ fn box_blur_horz_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
 
                 val_r += isize::from(lv) - isize::from(bb);
 
-                frontbuf[ti] = round(val_r as f32 * iarr) as u8;
+                dst[ti] = round(val_r as f32 * iarr) as u8;
                 ti += 1;
             }
         }
