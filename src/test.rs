@@ -84,8 +84,7 @@ fn weird_sizes_dont_panic() {
         gaussian_blur(&mut data_new, width as usize, height as usize, 180.0); // smaller than height
         gaussian_blur(&mut data_new, width as usize, height as usize, 500.0); // bigger than height, smaller than width
         gaussian_blur(&mut data_new, width as usize, height as usize, 500000.0); // bigger than both
-        // causes panic in debug mode due to integer overflow, works in release mode
-        // gaussian_blur(&mut data_new, width as usize, height as usize, 500000000000000000.0); // ridiculously big
+        gaussian_blur(&mut data_new, width as usize, height as usize, 500000000000000000.0); // ridiculously big
     } else {
         panic!("could not decode png");
     }
@@ -107,4 +106,58 @@ fn box_sizes_match_the_reference_algorithm() {
     // A sigma of zero or less means "don't blur", i.e. a box width of one.
     assert_eq!(create_box_gauss(0.0, 3), vec![1, 1, 1]);
     assert_eq!(create_box_gauss(-1.0, 3), vec![1, 1, 1]);
+}
+
+#[test]
+fn extreme_radii_do_not_panic() {
+    use super::{gaussian_blur, gaussian_blur_asymmetric, gaussian_blur_asymmetric_single_channel};
+
+    // Deliberately taller than wide. The horizontal pass used to subtract
+    // `height` when checking whether the box was wider than the *row*, which
+    // underflows for any image where `height > blur_radius > width` - the
+    // existing test image is wider than it is tall, so it never hit this.
+    let (width, height) = (8usize, 24usize);
+
+    let radii = [
+        -5.0f32,
+        0.0,
+        0.5,
+        12.0,                    // wider than the image, narrower than it is tall
+        500.0,                   // wider than both
+        500000000000000000.0,    // used to overflow `wl + 2`
+        ::std::f32::MAX,
+        ::std::f32::INFINITY,
+        ::std::f32::NEG_INFINITY,
+        ::std::f32::NAN,
+    ];
+
+    for &radius in radii.iter() {
+        // A flat image has to survive any blur unchanged: every window, however
+        // far it reaches past the edge, averages the same value.
+        let mut rgb = vec![[17u8, 42, 200]; width * height];
+        gaussian_blur(&mut rgb, width, height, radius);
+        assert!(rgb.iter().all(|px| *px == [17, 42, 200]),
+                "flat image changed at radius {}", radius);
+
+        gaussian_blur_asymmetric(&mut rgb, width, height, radius, 3.0);
+        gaussian_blur_asymmetric(&mut rgb, width, height, 3.0, radius);
+
+        let mut gray = vec![7u8; width * height];
+        gaussian_blur_asymmetric_single_channel(&mut gray, width, height, radius, radius);
+        assert!(gray.iter().all(|px| *px == 7),
+                "flat single-channel image changed at radius {}", radius);
+    }
+}
+
+#[test]
+fn degenerate_sizes_do_not_panic() {
+    use super::{gaussian_blur, gaussian_blur_asymmetric_single_channel};
+
+    for &(w, h) in [(0usize, 0usize), (0, 10), (10, 0), (1, 1), (1, 32), (32, 1)].iter() {
+        let mut rgb = vec![[9u8, 9, 9]; w * h];
+        gaussian_blur(&mut rgb, w, h, 7.0);
+
+        let mut gray = vec![9u8; w * h];
+        gaussian_blur_asymmetric_single_channel(&mut gray, w, h, 7.0, 7.0);
+    }
 }

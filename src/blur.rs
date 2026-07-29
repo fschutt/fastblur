@@ -1,35 +1,52 @@
 use std::cmp::min;
 
+/// Widest box we will ever hand out.
+///
+/// `f32 as i32` saturates at `i32::MAX`, so without a clamp the `wu = wl + 2`
+/// in `create_box_gauss` overflows for absurd sigmas. 2^20 is exactly
+/// representable in `f32`, is far wider than any real image, and keeps the
+/// index arithmetic in the blur passes well inside `usize` on 32-bit targets.
+const MAX_BOX_WIDTH: i32 = 1 << 20;
+
+/// Turns a box width into the radius the blur passes work with, clamped to the
+/// size of the axis it is applied to.
+///
+/// Once the box is as wide as the image every extra pixel of reach only piles
+/// more weight onto the clamped edge pixel, so cutting it off there keeps the
+/// result sane while bounding `radius * width` for the index arithmetic.
+#[inline]
+fn box_radius(box_size: i32, axis_len: usize) -> usize {
+    min(((box_size - 1) / 2) as usize, axis_len)
+}
+
 pub fn gaussian_blur(data: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius: f32)
 {
-    let boxes = create_box_gauss(blur_radius, 3);
-    let mut backbuf = data.clone();
-
-    for box_size in boxes.iter() {
-        let radius = ((box_size - 1) / 2) as usize;
-        box_blur(&mut backbuf, data, width, height, radius, radius);
-    }
+    gaussian_blur_asymmetric(data, width, height, blur_radius, blur_radius)
 }
 
 /// Same as gaussian_blur, but allows using different blur radii for vertical and horizontal passes
 pub fn gaussian_blur_asymmetric(data: &mut Vec<[u8;3]>, width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32) {
+    if width == 0 || height == 0 { return; }
+
     let boxes_horz = create_box_gauss(blur_radius_horizontal, 3);
     let boxes_vert = create_box_gauss(blur_radius_vertical, 3);
     let mut backbuf = data.clone();
 
     for (box_size_horz, box_size_vert) in boxes_horz.iter().zip(boxes_vert.iter()) {
-        let radius_horz = ((box_size_horz - 1) / 2) as usize;
-        let radius_vert = ((box_size_vert - 1) / 2) as usize;
+        let radius_horz = box_radius(*box_size_horz, width);
+        let radius_vert = box_radius(*box_size_vert, height);
         box_blur(&mut backbuf, data, width, height, radius_horz, radius_vert);
     }
 }
 
 #[inline]
-/// If there is no valid size (e.g. radius is negative), returns `vec![1; len]`
-/// which would translate to blur radius of 0
+/// If there is no valid size (e.g. radius is negative, NaN or infinite),
+/// returns `vec![1; len]` which would translate to blur radius of 0
 pub(crate) fn create_box_gauss(sigma: f32, n: usize)
 -> Vec<i32>
 {
+    // NaN compares false here and so takes the `else` branch; an infinite
+    // sigma does not, and is caught by the `MAX_BOX_WIDTH` clamp below.
     if sigma > 0.0 {
         let n_float = n as f32;
 
@@ -42,7 +59,9 @@ pub(crate) fn create_box_gauss(sigma: f32, n: usize)
         // all three passes ended up using the same (too wide) box instead of
         // the intended two narrow ones plus one wide one.
         let w_ideal = (12.0 * sigma * sigma / n_float + 1.0).sqrt();
-        let mut wl: i32 = w_ideal.floor() as i32;
+        // Clamp *before* the cast: `f32 as i32` saturates at `i32::MAX`, which
+        // used to make `wl + 2` below overflow and panic in debug builds.
+        let mut wl: i32 = w_ideal.floor().min(MAX_BOX_WIDTH as f32) as i32;
 
         if wl % 2 == 0 { wl -= 1; };
 
@@ -71,13 +90,15 @@ pub(crate) fn create_box_gauss(sigma: f32, n: usize)
 
 /// Same as gaussian_blur, but allows using different blur radii for vertical and horizontal passes
 pub fn gaussian_blur_asymmetric_single_channel(data: &mut Vec<u8>, width: usize, height: usize, blur_radius_horizontal: f32, blur_radius_vertical: f32) {
+    if width == 0 || height == 0 { return; }
+
     let boxes_horz = create_box_gauss(blur_radius_horizontal, 3);
     let boxes_vert = create_box_gauss(blur_radius_vertical, 3);
     let mut backbuf = data.clone();
 
     for (box_size_horz, box_size_vert) in boxes_horz.iter().zip(boxes_vert.iter()) {
-        let radius_horz = ((box_size_horz - 1) / 2) as usize;
-        let radius_vert = ((box_size_vert - 1) / 2) as usize;
+        let radius_horz = box_radius(*box_size_horz, width);
+        let radius_vert = box_radius(*box_size_vert, height);
         box_blur_single_channel(&mut backbuf, data, width, height, radius_horz, radius_vert);
     }
 }
@@ -242,10 +263,13 @@ fn box_blur_horz(backbuf: &[[u8;3]], frontbuf: &mut [[u8;3]], width: usize, heig
             val_g += isize::from(bb[1]);
             val_b += isize::from(bb[2]);
         }
+        // The row is `width` long, so this has to subtract `width`; subtracting
+        // `height` (a copy-paste slip from the vertical pass) underflows as
+        // soon as the image is taller than the blur box is wide.
         if blur_radius > width {
-            val_r += (blur_radius - height) as isize * isize::from(lv[0]);
-            val_g += (blur_radius - height) as isize * isize::from(lv[1]);
-            val_b += (blur_radius - height) as isize * isize::from(lv[2]);
+            val_r += (blur_radius - width) as isize * isize::from(lv[0]);
+            val_g += (blur_radius - width) as isize * isize::from(lv[1]);
+            val_b += (blur_radius - width) as isize * isize::from(lv[2]);
         }
 
 
@@ -435,8 +459,9 @@ fn box_blur_horz_single_channel(backbuf: &[u8], frontbuf: &mut [u8], width: usiz
             val_r += isize::from(bb);
         }
 
+        // See `box_blur_horz`: the row is `width` long, not `height`.
         if blur_radius > width {
-            val_r += (blur_radius - height) as isize * isize::from(lv);
+            val_r += (blur_radius - width) as isize * isize::from(lv);
         }
 
 
