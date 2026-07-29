@@ -212,3 +212,55 @@ fn blur_is_symmetric_under_transpose() {
         assert!(max_diff <= 1, "axes disagree by {} at sigma {}", max_diff, sigma);
     }
 }
+
+fn lcg_gray(width: usize, height: usize) -> Vec<u8> {
+    let mut state: u32 = 0x1357_9BDF;
+    (0..width * height).map(|_| {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 24) as u8
+    }).collect()
+}
+
+/// FNV-1a, so a golden value fits in one line and any difference shows up.
+fn checksum<'a, I: IntoIterator<Item = &'a u8>>(bytes: I) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Golden output checksums, so the refactors that follow (iterator loops, a
+/// channel-generic core) have to stay bit-for-bit identical.
+///
+/// Cases picked to walk every branch: no blur, symmetric, asymmetric, a box
+/// wider than the image, and degenerate one-pixel rows and columns.
+const GOLDEN: &[(usize, usize, f32, f32, u64, u64)] = &[
+    (37, 23,  0.0,  0.0, 0x12f53dd417ab19ae, 0xaa772e5afb8f537f),
+    (37, 23,  1.0,  1.0, 0x0276ebfe4acd0ec4, 0x44504541c58e730f),
+    (37, 23,  4.5,  4.5, 0x7287cdd419af9970, 0xc7017e4c2f99bc85),
+    (37, 23,  2.0,  9.0, 0x3de976cb7f5ac6eb, 0x099c1f65a8c1e827),
+    (23, 37,  9.0,  2.0, 0x589bcc69c0d93bb0, 0x986f64e0754db484),
+    (37, 23, 60.0, 60.0, 0x937b99fe8ce8a019, 0xac4eda073e1bb687),
+    (64, 64,  3.0,  3.0, 0xceb2bf30336ab18a, 0xfddef4e9369ff156),
+    ( 1, 40,  5.0,  5.0, 0xfbe1c183803458ac, 0xa46d0b1e2bd425ba),
+    (40,  1,  5.0,  5.0, 0xfbe1c183803458ac, 0xa46d0b1e2bd425ba),
+];
+
+#[test]
+fn blur_output_is_stable() {
+    use super::{gaussian_blur_asymmetric, gaussian_blur_asymmetric_single_channel};
+
+    for &(w, h, sh, sv, want_rgb, want_gray) in GOLDEN.iter() {
+        let mut rgb = lcg_image(w, h);
+        gaussian_blur_asymmetric(&mut rgb, w, h, sh, sv);
+        assert_eq!(checksum(rgb.iter().flat_map(|px| px.iter())), want_rgb,
+                   "rgb {}x{} h={} v={}", w, h, sh, sv);
+
+        let mut gray = lcg_gray(w, h);
+        gaussian_blur_asymmetric_single_channel(&mut gray, w, h, sh, sv);
+        assert_eq!(checksum(gray.iter()), want_gray,
+                   "gray {}x{} h={} v={}", w, h, sh, sv);
+    }
+}
